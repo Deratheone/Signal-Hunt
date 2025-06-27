@@ -46,7 +46,7 @@ void setup() {
   Serial.begin(9600);
   Serial.println("RF Signal Hunt Transmitter");
   Serial.println("ID: " + String(TRANSMITTER_ID) + " (" + TRANSMITTER_NAME + ")");
-  
+  mySwitch.setProtocol(1);  // Must match RF_PROTOCOL in receiver
   // Initialize RF transmitter
   mySwitch.enableTransmit(RF_DATA_PIN);
   mySwitch.setPulseLength(RF_PULSE_LENGTH);
