@@ -13,10 +13,10 @@
  * 
  * Pin Connections:
  * - 433MHz Data Pin → GPIO2 (interrupt capable)
- * - Optional: Battery voltage divider → GPIO34 (analog input)
  * 
  * Author: IEEE APS CUSAT Student Branch
  * Date: 2025-06-26
+ * Updated: 2025-06-27 - Battery monitoring removed
  */
 
 #include <WiFi.h>
@@ -39,10 +39,11 @@ const char* ssid = "RF-SIGNAL-HUNT";
 const char* password = "ieee2024";
 
 //============== BATTERY MONITORING ==============//
-#define BATTERY_PIN 34        // ADC pin for battery monitoring
-#define BATTERY_READING_INTERVAL 30000  // Battery check interval (30 seconds)
-float batteryVoltage = 0.0;
-unsigned long lastBatteryReading = 0;
+// Battery monitoring disabled
+// #define BATTERY_PIN 34        // ADC pin for battery monitoring
+// #define BATTERY_READING_INTERVAL 30000  // Battery check interval (30 seconds)
+float batteryVoltage = 4.0;  // Fixed "good" battery level
+// unsigned long lastBatteryReading = 0;
 
 //============== GAME CONFIGURATION ==============//
 #define DISCOVERY_RANGE 5.0    // Distance in meters to discover a transmitter
@@ -97,7 +98,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n======= RF SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 2.0 - 2025-06-26");
+  Serial.println("Version 2.1 - 2025-06-27");
   
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
@@ -106,8 +107,8 @@ void setup() {
   loadGameState();
   Serial.println("2. Game state loaded from EEPROM");
   
-  // Initialize battery monitoring
-  pinMode(BATTERY_PIN, INPUT);
+  // Battery monitoring disabled
+  // pinMode(BATTERY_PIN, INPUT);
   
   // Initialize RF receiver with optimized settings
   mySwitch.enableReceive(RF_INTERRUPT_PIN);
@@ -164,12 +165,14 @@ void loop() {
   // Update transmitter status (mark as inactive if not seen recently)
   updateTransmitterStatus();
   
-  // Check battery status periodically
+  // Battery checking disabled
+  /*
   unsigned long currentTime = millis();
   if (currentTime - lastBatteryReading > BATTERY_READING_INTERVAL) {
     readBatteryVoltage();
     lastBatteryReading = currentTime;
   }
+  */
   
   // Small delay to prevent CPU hogging
   delay(10);
@@ -361,31 +364,13 @@ void updateTransmitterStatus() {
 }
 
 /**
- * Read battery voltage using the ADC
- * Requires a voltage divider to bring battery voltage into ESP32 range
+ * Read battery voltage using the ADC - Now returns fixed good value
  */
 void readBatteryVoltage() {
-  // Read analog value from battery monitoring pin
-  // Assumes voltage divider is used to scale battery voltage to 0-3.3V range
+  // Battery reading disabled - set a fixed good value
+  batteryVoltage = 4.0;  // Good battery level (USB powered)
   
-  // Take multiple readings for better accuracy
-  int rawValue = 0;
-  for(int i = 0; i < 10; i++) {
-    rawValue += analogRead(BATTERY_PIN);
-    delay(5);
-  }
-  rawValue /= 10;
-  
-  // Convert to voltage - adjust these values based on your voltage divider
-  // ESP32 ADC reference is 3.3V and resolution is 12-bit (0-4095)
-  float voltage = rawValue * 3.3 / 4095.0;
-  
-  // Scale based on voltage divider (example: 100K/100K divider = 2x scaling)
-  // Adjust the multiplier based on your actual voltage divider
-  float dividerRatio = 2.0; // Change according to your resistor values
-  batteryVoltage = voltage * dividerRatio;
-  
-  Serial.print("Battery: ");
+  Serial.print("Battery monitoring disabled. Using fixed value: ");
   Serial.print(batteryVoltage);
   Serial.println("V");
 }
@@ -556,36 +541,9 @@ void handleRoot() {
             margin-top: 4px;
         }
         
+        /* Battery indicator removed */
         .battery-indicator {
-            position: absolute;
-            top: 12px;
-            right: 16px;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 12px;
-        }
-        
-        .battery-icon {
-            width: 20px;
-            height: 10px;
-            border: 1px solid currentColor;
-            border-radius: 2px;
-            position: relative;
-            padding: 1px;
-        }
-        
-        .battery-level {
-            height: 100%;
-            background: currentColor;
-            transition: width 1s ease;
-        }
-        
-        .battery-tip {
-            width: 2px;
-            height: 6px;
-            background: currentColor;
-            margin-left: 2px;
+            display: none;
         }
         
         .radar-container {
@@ -1033,14 +991,6 @@ void handleRoot() {
             
             <div class="title">RF SIGNAL HUNT</div>
             <div class="subtitle">LOCATE HIDDEN TRANSMITTERS</div>
-            
-            <div class="battery-indicator">
-                <div class="battery-icon">
-                    <div class="battery-level" id="batteryLevel"></div>
-                </div>
-                <div class="battery-tip"></div>
-                <span id="batteryPercent">--</span>
-            </div>
         </div>
         
         <div class="radar-container">
@@ -1124,7 +1074,7 @@ void handleRoot() {
             score: 0,
             foundTransmitters: new Set(),
             activeTransmitters: [],
-            batteryLevel: 100,
+            batteryLevel: 100,  // Fixed good battery level
             transmitterCount: 6
         };
 
@@ -1142,8 +1092,6 @@ void handleRoot() {
         const elements = {
             connectionStatus: document.getElementById('connectionStatus'),
             connectionText: document.getElementById('connectionText'),
-            batteryLevel: document.getElementById('batteryLevel'),
-            batteryPercent: document.getElementById('batteryPercent'),
             blipContainer: document.getElementById('blipContainer'),
             currentTarget: document.getElementById('currentTarget'),
             targetIcon: document.getElementById('targetIcon'),
@@ -1201,32 +1149,8 @@ void handleRoot() {
             }
         }
 
-        // Update battery level UI
-        function updateBatteryLevel(voltage) {
-            // Convert voltage to percentage (adjust these values based on your battery)
-            // Assumes LiPo battery with range 3.3V (0%) to 4.2V (100%)
-            let percent = (voltage - 3.3) / (4.2 - 3.3) * 100;
-            percent = Math.max(0, Math.min(100, Math.round(percent)));
-            
-            gameState.batteryLevel = percent;
-            elements.batteryLevel.style.width = `${percent}%`;
-            elements.batteryPercent.textContent = `${percent}%`;
-            
-            // Change color based on battery level
-            let color;
-            if (percent <= 20) color = 'var(--danger)';
-            else if (percent <= 50) color = 'var(--warning)';
-            else color = 'var(--secondary)';
-            
-            elements.batteryLevel.style.background = color;
-            elements.batteryPercent.style.color = color;
-            
-            // Show low battery warning
-            if (percent <= 15) {
-                showNotification('Low Battery', 'Please charge the device soon', 'warning');
-            }
-        }
-
+        // Battery-related functions removed/simplified
+        
         // Update the radar blips
         function updateRadarBlips(transmitters) {
             elements.blipContainer.innerHTML = '';
@@ -1424,15 +1348,10 @@ void handleRoot() {
                 });
         }
 
-        // Fetch system status
+        // Fetch system status - battery code removed
         function fetchSystemStatus() {
             fetch('/api/status')
                 .then(res => res.json())
-                .then(data => {
-                    if (data.battery !== undefined) {
-                        updateBatteryLevel(data.battery);
-                    }
-                })
                 .catch(err => {
                     console.error('Failed to fetch status data', err);
                 });
@@ -1531,6 +1450,7 @@ void handleScoreAPI() {
 void handleStatusAPI() {
   StaticJsonDocument<256> doc;
   
+  // Fixed good battery level (4.0V = ~100% for LiPo)
   doc["battery"] = batteryVoltage;
   doc["uptime"] = millis() / 1000;
   doc["rssi"] = WiFi.RSSI();
