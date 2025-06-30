@@ -30,39 +30,44 @@
 #define RF_DATA_PIN 10          // pin connected to transmitter DATA pin
 #define RF_PULSE_LENGTH 350     // microseconds (higher = better range, more power)
 
-// Optional battery saving features
-//#define BATTERY_SAVING_MODE false  // true = longer gaps between transmissions
-//#define BATTERY_PIN A0             // analog pin connected to battery via voltage divider
+// Battery monitoring disabled
+// #define BATTERY_SAVING_MODE false  // true = longer gaps between transmissions
+// #define BATTERY_PIN A0             // analog pin connected to battery via voltage divider
 
 // Create RCSwitch instance
 RCSwitch mySwitch = RCSwitch();
 
 // Transmission functions
 unsigned long lastTransmitTime = 0;
-//int batteryLevel = 100;
+// Battery monitoring disabled, but we need this for serial printing
+const int batteryLevel = 100;  // Fixed value since monitoring is disabled
 
 void setup() {
   // Initialize serial monitor for debugging
   Serial.begin(9600);
   Serial.println("RF Signal Hunt Transmitter");
   Serial.println("ID: " + String(TRANSMITTER_ID) + " (" + TRANSMITTER_NAME + ")");
+  
+  // Set protocol to match receiver
   mySwitch.setProtocol(1);  // Must match RF_PROTOCOL in receiver
+  
   // Initialize RF transmitter
   mySwitch.enableTransmit(RF_DATA_PIN);
   mySwitch.setPulseLength(RF_PULSE_LENGTH);
   
-  // Setup ADC for battery monitoring
- // analogReference(DEFAULT);
-  
-  // Initial battery reading
-//  batteryLevel = readBattery();
-  //Serial.println("Battery: " + String(batteryLevel) + "%");
+  // Visual indicator for debugging
+  pinMode(LED_BUILTIN, OUTPUT);
   
   // Unique startup pattern to identify this transmitter
   for (int i = 0; i < 3; i++) {
     transmitSignal();
-    delay(200);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(100);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(100);
   }
+  
+  Serial.println("Transmitter initialized and ready");
 }
 
 void loop() {
@@ -70,9 +75,9 @@ void loop() {
   unsigned long currentMillis = millis();
   
   // Check if it's time to transmit
-  if (currentMillis - lastTransmitTime >= getTransmitInterval()) {
-    // Update battery level
-   // batteryLevel = readBattery();
+  if (currentMillis - lastTransmitTime >= TRANSMIT_INTERVAL) {
+    // Visual feedback
+    digitalWrite(LED_BUILTIN, HIGH);
     
     // Transmit according to selected pattern
     switch(TRANSMISSION_PATTERN) {
@@ -114,20 +119,18 @@ void loop() {
         break;
     }
     
+    // Turn off LED
+    digitalWrite(LED_BUILTIN, LOW);
+    
     // Update last transmit time
     lastTransmitTime = currentMillis;
     
     // Output status to serial
-    Serial.println("TX: " + String(TRANSMITTER_ID) + ", Batt: " + String(batteryLevel) + "%");
+    Serial.println("TX: " + String(TRANSMITTER_ID) + " (" + TRANSMITTER_NAME + ")");
   }
   
-  // Battery saving sleep mode if enabled
- /* if (BATTERY_SAVING_MODE) {
-    delay(100); // Allow serial to finish
-    // Simple delay for Arduino Uno (deep sleep would require additional hardware)
-    delay(getTransmitInterval() - 100);
-  }
-}*/
+  // Battery saving mode removed
+}
 
 // Transmit the signal multiple times for reliability
 void transmitBurst() {
@@ -137,35 +140,10 @@ void transmitBurst() {
   }
 }
 
-// Transmit the signal with ID and battery info
+// Transmit the signal with just the ID (no battery info)
 void transmitSignal() {
-  // Encode battery level in high bits
-  unsigned long message = TRANSMITTER_ID;
-  message |= ((unsigned long)batteryLevel << 24);
-  
-  // Send the RF signal
-  mySwitch.send(message, 32);
+  // Send only the ID (no battery level encoding)
+  mySwitch.send(TRANSMITTER_ID, 24);  // Use 24 bits for the ID
 }
 
-// Read battery level
-/*int readBattery() {
-  // Simple battery monitoring through voltage divider
-  // Formula assumes 5V USB or fresh 9V with voltage divider
-  int rawValue = analogRead(BATTERY_PIN);
-  
-  // Map ADC to percentage (adjust these values based on your voltage divider)
-  // For 9V battery: full=~9V(raw 614), empty=~7V(raw 477)
-  int percentage = map(rawValue, 477, 614, 0, 100);
-  percentage = constrain(percentage, 0, 100);
-  
-  return percentage;
-}*/
-
-// Get transmission interval, potentially adjusted for battery level
-unsigned long getTransmitInterval() {
-  // If battery is low, transmit less frequently
-  if (batteryLevel < 20) {
-    return TRANSMIT_INTERVAL * 2;
-  }
-  return TRANSMIT_INTERVAL;
-}
+// Battery-related functions removed
