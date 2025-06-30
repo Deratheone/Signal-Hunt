@@ -9,14 +9,14 @@
  * Hardware Requirements:
  * - ESP32 DevKit board
  * - 433MHz RF receiver module
- * - Battery for portable operation (recommended 5V power bank)
+ * - Power via USB cable or power bank
  * 
  * Pin Connections:
  * - 433MHz Data Pin → GPIO2 (interrupt capable)
  * 
  * Author: IEEE APS CUSAT Student Branch
- * Date: 2025-06-26
- * Updated: 2025-06-27 - Battery monitoring removed
+ * Date: 2025-06-30
+ * Updated: Battery monitoring removed
  */
 
 #include <WiFi.h>
@@ -38,12 +38,12 @@
 const char* ssid = "RF-SIGNAL-HUNT";
 const char* password = "ieee2024";
 
-//============== BATTERY MONITORING ==============//
+//============== BATTERY MONITORING REMOVED ==============//
 // Battery monitoring disabled
 // #define BATTERY_PIN 34        // ADC pin for battery monitoring
 // #define BATTERY_READING_INTERVAL 30000  // Battery check interval (30 seconds)
-float batteryVoltage = 4.0;  // Fixed "good" battery level
-// unsigned long lastBatteryReading = 0;
+// Fixed battery value for API responses
+const float batteryVoltage = 4.0;  // Fixed "good" battery level
 
 //============== GAME CONFIGURATION ==============//
 #define DISCOVERY_RANGE 5.0    // Distance in meters to discover a transmitter
@@ -98,7 +98,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n======= RF SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 2.1 - 2025-06-27");
+  Serial.println("Version 2.2 - 2025-06-30");
   
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
@@ -113,8 +113,7 @@ void setup() {
   // Initialize RF receiver with optimized settings
   mySwitch.enableReceive(RF_INTERRUPT_PIN);
   
-  // Optional: Set protocol and pulse length for better reception
-  // Uncomment and adjust these parameters based on your transmitters
+  // Set protocol and pulse length for better reception
   mySwitch.setPulseLength(RF_PULSE_LENGTH);
   mySwitch.setProtocol(RF_PROTOCOL);
   
@@ -219,6 +218,17 @@ void handleRFSignal() {
   unsigned long receivedValue = mySwitch.getReceivedValue();
   
   if (receivedValue != 0) {
+    // Debug info - print protocol, bit length and pulse length
+    Serial.print("RF Signal | Value: ");
+    Serial.print(receivedValue);
+    Serial.print(" | Protocol: ");
+    Serial.print(mySwitch.getReceivedProtocol());
+    Serial.print(" | Bits: ");
+    Serial.print(mySwitch.getReceivedBitlength());
+    Serial.print(" | Delay: ");
+    Serial.print(mySwitch.getReceivedDelay());
+    Serial.println("μs");
+    
     // Calculate signal strength - we simulate RSSI since RCSwitch doesn't provide it
     // For real RSSI you would need hardware that provides this value
     
@@ -232,14 +242,6 @@ void handleRFSignal() {
     
     // Add slight randomness to simulate real-world conditions
     rawRssi += random(-3, 4);
-    
-    Serial.print("Received RF code: ");
-    Serial.print(receivedValue);
-    Serial.print(" (Delay: ");
-    Serial.print(receiveDelay);
-    Serial.print("μs, RSSI est: ");
-    Serial.print(rawRssi);
-    Serial.println(" dBm)");
     
     // Find matching transmitter
     int index = findTransmitterIndex(receivedValue);
@@ -364,8 +366,9 @@ void updateTransmitterStatus() {
 }
 
 /**
- * Read battery voltage using the ADC - Now returns fixed good value
+ * Battery-related functions disabled
  */
+/*
 void readBatteryVoltage() {
   // Battery reading disabled - set a fixed good value
   batteryVoltage = 4.0;  // Good battery level (USB powered)
@@ -374,6 +377,7 @@ void readBatteryVoltage() {
   Serial.print(batteryVoltage);
   Serial.println("V");
 }
+*/
 
 /**
  * Load game state from EEPROM
@@ -1074,7 +1078,6 @@ void handleRoot() {
             score: 0,
             foundTransmitters: new Set(),
             activeTransmitters: [],
-            batteryLevel: 100,  // Fixed good battery level
             transmitterCount: 6
         };
 
@@ -1148,8 +1151,6 @@ void handleRoot() {
                 elements.scanningText.textContent = 'SCANNING';
             }
         }
-
-        // Battery-related functions removed/simplified
         
         // Update the radar blips
         function updateRadarBlips(transmitters) {
@@ -1348,7 +1349,7 @@ void handleRoot() {
                 });
         }
 
-        // Fetch system status - battery code removed
+        // Fetch system status
         function fetchSystemStatus() {
             fetch('/api/status')
                 .then(res => res.json())
