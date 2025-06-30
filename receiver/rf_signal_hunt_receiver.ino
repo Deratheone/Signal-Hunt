@@ -501,7 +501,7 @@ void handleRoot() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RF Signal Hunt - IEEE APS</title>
+    <title>Signal Hunt - IEEE APS</title>
     <style>
         * {
             margin: 0;
@@ -1074,14 +1074,14 @@ void handleRoot() {
     <div class="container">
         <div class="header">
             <div class="header-content">
-                <div class="logo">IEEE APS</div>
+                <div class="logo">IEEE APS,CUSAT SB</div>
                 <div class="status-indicator">
                     <div class="status-dot" id="connectionStatus"></div>
                     <span id="connectionText">CONNECTED</span>
                 </div>
             </div>
             
-            <div class="title">RF SIGNAL HUNT</div>
+            <div class="title">SIGNAL HUNT</div>
             <div class="subtitle">LOCATE HIDDEN TRANSMITTERS</div>
         </div>
         
