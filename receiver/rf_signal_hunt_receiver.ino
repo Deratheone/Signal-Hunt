@@ -16,7 +16,7 @@
  * 
  * Author: IEEE APS CUSAT Student Branch
  * Date: 2025-06-30
- * Updated: Battery monitoring removed
+ * Version: 2.3 - Added result download feature
  */
 
 #include <WiFi.h>
@@ -98,7 +98,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n======= RF SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 2.2 - 2025-06-30");
+  Serial.println("Version 2.3 - 2025-06-30");
   
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
@@ -429,6 +429,9 @@ void setupWebServer() {
   server.on("/api/status", handleStatusAPI);
   server.on("/api/reset", HTTP_POST, handleResetAPI);
   
+  // New download endpoint
+  server.on("/api/download", handleDownloadAPI);
+  
   // Handle 404
   server.onNotFound([]() {
     server.send(404, "text/plain", "Not found. Use IP address to access the RF Signal Hunt game.");
@@ -436,6 +439,56 @@ void setupWebServer() {
 
   server.begin();
   Serial.println("Web server started");
+}
+
+/**
+ * New API endpoint to download results as JSON file
+ */
+void handleDownloadAPI() {
+  StaticJsonDocument<1024> doc;
+  
+  // Team info and basic stats
+  doc["teamName"] = "IEEE APS Team";  // Could be made configurable
+  doc["totalScore"] = gameState.totalScore;
+  doc["foundCount"] = gameState.foundCount;
+  doc["gameTime"] = millis() - gameState.sessionStart;
+  
+  // Found transmitters with details
+  JsonArray found = doc.createNestedArray("foundTransmitters");
+  for (int i = 0; i < transmitterCount; i++) {
+    if (gameState.foundTransmitters[i]) {
+      JsonObject tx = found.createNestedObject();
+      tx["id"] = transmitters[i].id;
+      tx["name"] = transmitters[i].name;
+      tx["points"] = transmitters[i].points;
+    }
+  }
+  
+  // Active transmitters at time of download
+  JsonArray active = doc.createNestedArray("activeTransmitters");
+  for (int i = 0; i < transmitterCount; i++) {
+    if (transmitters[i].isActive) {
+      JsonObject tx = active.createNestedObject();
+      tx["id"] = transmitters[i].id;
+      tx["name"] = transmitters[i].name;
+      tx["distance"] = transmitters[i].distance;
+      tx["rssi"] = transmitters[i].rssi;
+    }
+  }
+  
+  // Device information for verification
+  doc["deviceID"] = String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF), HEX);  // Use ESP32's unique MAC as ID
+  doc["timestamp"] = millis();
+  doc["version"] = "2.3";
+  
+  String response;
+  serializeJsonPretty(doc, response);  // Pretty print for readability
+  
+  // Send with download headers
+  server.sendHeader("Content-Disposition", "attachment; filename=rf_hunt_results.json");
+  server.send(200, "application/json", response);
+  
+  Serial.println("Results downloaded");
 }
 
 /**
@@ -794,6 +847,41 @@ void handleRoot() {
             text-align: right;
         }
         
+        .download-container {
+            margin-top: 16px;
+        }
+
+        .download-button {
+            background: linear-gradient(135deg, var(--primary), var(--highlight));
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            width: 100%;
+        }
+
+        .download-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .download-button:active {
+            transform: translateY(0px);
+        }
+
+        .download-icon {
+            margin-right: 8px;
+            font-size: 16px;
+        }
+        
         .transmitter-grid {
             padding: 20px;
         }
@@ -1052,6 +1140,13 @@ void handleRoot() {
                     <span id="foundCount">0</span>/<span id="totalCount">6</span> transmitters
                 </div>
             </div>
+            
+            <!-- Download button added -->
+            <div class="download-container">
+                <button class="download-button" onclick="downloadResults()">
+                    <span class="download-icon">⬇️</span> Download Results
+                </button>
+            </div>
         </div>
         
         <div class="transmitter-grid">
@@ -1308,6 +1403,19 @@ void handleRoot() {
             setTimeout(() => {
                 elements.notification.className = 'notification';
             }, 4000);
+        }
+
+        // Download results as JSON file
+        function downloadResults() {
+            showNotification('Preparing Download', 'Creating results file...', 'info');
+            
+            // Trigger download from the server
+            window.location.href = '/api/download';
+            
+            // Show success notification after a delay
+            setTimeout(() => {
+                showNotification('Download Complete', 'Results saved to your device', 'success');
+            }, 1000);
         }
 
         // API CALLS
