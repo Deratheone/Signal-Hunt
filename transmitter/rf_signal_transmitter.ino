@@ -31,15 +31,15 @@
 #define RF_PULSE_LENGTH 350     // microseconds (higher = better range, more power)
 
 // Optional battery saving features
-#define BATTERY_SAVING_MODE false  // true = longer gaps between transmissions
-#define BATTERY_PIN A0             // analog pin connected to battery via voltage divider
+//#define BATTERY_SAVING_MODE false  // true = longer gaps between transmissions
+//#define BATTERY_PIN A0             // analog pin connected to battery via voltage divider
 
 // Create RCSwitch instance
 RCSwitch mySwitch = RCSwitch();
 
 // Transmission functions
 unsigned long lastTransmitTime = 0;
-int batteryLevel = 100;
+//int batteryLevel = 100;
 
 void setup() {
   // Initialize serial monitor for debugging
@@ -52,11 +52,11 @@ void setup() {
   mySwitch.setPulseLength(RF_PULSE_LENGTH);
   
   // Setup ADC for battery monitoring
-  analogReference(DEFAULT);
+ // analogReference(DEFAULT);
   
   // Initial battery reading
-  batteryLevel = readBattery();
-  Serial.println("Battery: " + String(batteryLevel) + "%");
+//  batteryLevel = readBattery();
+  //Serial.println("Battery: " + String(batteryLevel) + "%");
   
   // Unique startup pattern to identify this transmitter
   for (int i = 0; i < 3; i++) {
@@ -72,7 +72,7 @@ void loop() {
   // Check if it's time to transmit
   if (currentMillis - lastTransmitTime >= getTransmitInterval()) {
     // Update battery level
-    batteryLevel = readBattery();
+   // batteryLevel = readBattery();
     
     // Transmit according to selected pattern
     switch(TRANSMISSION_PATTERN) {
@@ -122,12 +122,12 @@ void loop() {
   }
   
   // Battery saving sleep mode if enabled
-  if (BATTERY_SAVING_MODE) {
+ /* if (BATTERY_SAVING_MODE) {
     delay(100); // Allow serial to finish
     // Simple delay for Arduino Uno (deep sleep would require additional hardware)
     delay(getTransmitInterval() - 100);
   }
-}
+}*/
 
 // Transmit the signal multiple times for reliability
 void transmitBurst() {
@@ -148,7 +148,7 @@ void transmitSignal() {
 }
 
 // Read battery level
-int readBattery() {
+/*int readBattery() {
   // Simple battery monitoring through voltage divider
   // Formula assumes 5V USB or fresh 9V with voltage divider
   int rawValue = analogRead(BATTERY_PIN);
@@ -159,7 +159,7 @@ int readBattery() {
   percentage = constrain(percentage, 0, 100);
   
   return percentage;
-}
+}*/
 
 // Get transmission interval, potentially adjusted for battery level
 unsigned long getTransmitInterval() {
