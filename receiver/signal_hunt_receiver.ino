@@ -1,49 +1,29 @@
 /**
- * RF Signal Hunt Receiver - IEEE APS CUSAT Educational Event
+ * Signal Hunt Receiver
+ * IEEE APS CUSAT Educational Event
  * 
- * This code implements a 433MHz RF receiver using ESP32, designed for a
- * campus-wide treasure hunt game. The ESP32 creates a WiFi access point
- * and hosts a web server with a radar-like interface to help participants
- * track hidden transmitters.
+ * This code implements a signal hunt receiver using ESP32 and ESP-NOW protocol.
+ * The ESP32 creates a WiFi access point and hosts a web server with a radar-like
+ * interface to help participants track hidden transmitters.
  * 
  * Hardware Requirements:
  * - ESP32 DevKit board
- * - 433MHz RF receiver module
  * - Power via USB cable or power bank
- * 
- * Pin Connections:
- * - 433MHz Data Pin → GPIO2 (interrupt capable)
  * 
  * Author: IEEE APS CUSAT Student Branch
  * Date: 2025-06-30
- * Version: 2.3 - Added result download feature
+ * Version: 3.0 - ESP-NOW implementation
  */
 
+#include <esp_now.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <EEPROM.h>
-#include <RCSwitch.h>
 #include <ArduinoJson.h>
 
-//============== RF CONFIGURATION ==============//
-#define RF_RECEIVE_PIN 2       // GPIO pin connected to 433MHz receiver data pin
-#define RF_INTERRUPT_PIN 0     // GPIO2 corresponds to interrupt 0 on ESP32
-
-// Advanced RF settings for improved range
-#define RF_PULSE_LENGTH 350    // Pulse length (microseconds) - adjust based on transmitter
-#define RF_PROTOCOL 1          // RC protocol (1-6, depends on your transmitters)
-#define RF_REPEAT_READING 5    // Number of readings to average for better accuracy
-
 //============== WIFI CONFIGURATION ==============//
-const char* ssid = "RF-SIGNAL-HUNT";
+const char* ssid = "SIGNAL-HUNT";
 const char* password = "ieee2024";
-
-//============== BATTERY MONITORING REMOVED ==============//
-// Battery monitoring disabled
-// #define BATTERY_PIN 34        // ADC pin for battery monitoring
-// #define BATTERY_READING_INTERVAL 30000  // Battery check interval (30 seconds)
-// Fixed battery value for API responses
-const float batteryVoltage = 4.0;  // Fixed "good" battery level
 
 //============== GAME CONFIGURATION ==============//
 #define DISCOVERY_RANGE 5.0    // Distance in meters to discover a transmitter
@@ -51,12 +31,14 @@ const float batteryVoltage = 4.0;  // Fixed "good" battery level
 
 // Web Server on port 80
 WebServer server(80);
-RCSwitch mySwitch = RCSwitch();
 
-// Signal processing variables
-float lastRSSIValues[RF_REPEAT_READING]; // For moving average
-int rssiIndex = 0;
-float rssiAlpha = 0.3; // Exponential smoothing factor (0-1)
+// Structure for incoming ESP-NOW data
+typedef struct {
+  unsigned long id;
+  char name[10];
+  int points;
+  unsigned long timestamp;
+} SignalData;
 
 // Game State Structure
 struct TransmitterData {
@@ -84,6 +66,9 @@ struct GameState {
   float maxDistance;                    // Maximum detection range (auto-calibrated)
 } gameState;
 
+// Signal processing variables
+float rssiAlpha = 0.3; // Exponential smoothing factor (0-1)
+
 // EEPROM addresses
 #define EEPROM_SIZE 512
 #define SCORE_ADDR 0
@@ -91,45 +76,87 @@ struct GameState {
 #define SETTINGS_ADDR 100
 
 /**
+ * ESP-NOW Data Received Callback - Updated for new ESP-NOW API
+ */
+void OnDataReceived(const esp_now_recv_info_t *info, const uint8_t *data, int data_len) {
+  // Get the sender's MAC address
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           info->src_addr[0], info->src_addr[1], info->src_addr[2], 
+           info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+  
+  // Print MAC and RSSI
+  Serial.print("📡 Signal from: ");
+  Serial.print(macStr);
+  
+  // Get RSSI from WiFi
+  int rssi = WiFi.RSSI();
+  Serial.print(" [RSSI: ");
+  Serial.print(rssi);
+  Serial.print("dBm] ");
+
+  // Process received data
+  if (data_len == sizeof(SignalData)) {
+    SignalData* receivedData = (SignalData*)data;
+    
+    Serial.print("ID: ");
+    Serial.print(receivedData->id);
+    Serial.print(" (");
+    Serial.print(receivedData->name);
+    Serial.println(")");
+    
+    // Find matching transmitter in our database
+    int index = findTransmitterIndex(receivedData->id);
+    
+    if (index >= 0) {
+      // Update transmitter with received data and RSSI
+      updateTransmitterData(index, rssi, receivedData);
+      checkForNewDiscovery(index);
+    } else {
+      Serial.println("Unknown transmitter ID: " + String(receivedData->id));
+    }
+    
+  } else {
+    Serial.println("Received data with unexpected size");
+  }
+}
+
+/**
  * SETUP FUNCTION
  * Initializes all hardware and software components
  */
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n\n======= RF SIGNAL HUNT RECEIVER STARTING =======");
+  Serial.println("\n\n======= ESP-NOW SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 2.3 - 2025-06-30");
-  
+  Serial.println("Version 3.0 - 2025-06-30");
+
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
   Serial.println("1. EEPROM initialized");
   
   loadGameState();
   Serial.println("2. Game state loaded from EEPROM");
-  
-  // Battery monitoring disabled
-  // pinMode(BATTERY_PIN, INPUT);
-  
-  // Initialize RF receiver with optimized settings
-  mySwitch.enableReceive(RF_INTERRUPT_PIN);
-  
-  // Set protocol and pulse length for better reception
-  mySwitch.setPulseLength(RF_PULSE_LENGTH);
-  mySwitch.setProtocol(RF_PROTOCOL);
-  
-  Serial.println("3. RF Receiver initialized on pin " + String(RF_RECEIVE_PIN));
-  Serial.println("   RF Protocol: " + String(RF_PROTOCOL) + ", Pulse Length: " + String(RF_PULSE_LENGTH) + "μs");
-  
+
   // Initialize transmitter database
   initializeTransmitterDB();
-  Serial.println("4. Transmitter database initialized");
+  Serial.println("3. Transmitter database initialized");
+  
+  // Set up ESP-NOW first in STA mode
+  WiFi.mode(WIFI_AP_STA);
+  
+  // Initialize ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  
+  // Register callback for received data
+  esp_now_register_recv_cb(OnDataReceived);
+  
+  Serial.println("4. ESP-NOW initialized and ready to receive");
   
   // Setup WiFi Access Point
-  WiFi.mode(WIFI_AP);
-  
-  // Optional: Set RF power to maximum for better range
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
-  
   WiFi.softAP(ssid, password);
   Serial.println("5. WiFi Access Point started");
   Serial.println("   SSID: " + String(ssid));
@@ -155,26 +182,56 @@ void setup() {
 void loop() {
   server.handleClient();
   
-  // Check for RF signals
-  if (mySwitch.available()) {
-    handleRFSignal();
-    mySwitch.resetAvailable();
-  }
-  
   // Update transmitter status (mark as inactive if not seen recently)
   updateTransmitterStatus();
   
-  // Battery checking disabled
-  /*
-  unsigned long currentTime = millis();
-  if (currentTime - lastBatteryReading > BATTERY_READING_INTERVAL) {
-    readBatteryVoltage();
-    lastBatteryReading = currentTime;
-  }
-  */
-  
   // Small delay to prevent CPU hogging
   delay(10);
+}
+/**
+ * ESP-NOW Data Received Callback
+ * This function is called whenever we receive a packet via ESP-NOW
+ */
+void OnDataReceived(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
+  // Convert MAC to string
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  
+  // Print MAC and RSSI
+  Serial.print("📡 Signal from: ");
+  Serial.print(macStr);
+  
+  // Get RSSI
+  int rssi = WiFi.RSSI();
+  Serial.print(" [RSSI: ");
+  Serial.print(rssi);
+  Serial.print("dBm] ");
+
+  // Process received data
+  if (data_len == sizeof(SignalData)) {
+    SignalData* receivedData = (SignalData*)data;
+    
+    Serial.print("ID: ");
+    Serial.print(receivedData->id);
+    Serial.print(" (");
+    Serial.print(receivedData->name);
+    Serial.println(")");
+    
+    // Find matching transmitter in our database
+    int index = findTransmitterIndex(receivedData->id);
+    
+    if (index >= 0) {
+      // Update transmitter with received data and RSSI
+      updateTransmitterData(index, rssi, receivedData);
+      checkForNewDiscovery(index);
+    } else {
+      Serial.println("Unknown transmitter ID: " + String(receivedData->id));
+    }
+    
+  } else {
+    Serial.println("Received data with unexpected size");
+  }
 }
 
 /**
@@ -184,7 +241,7 @@ void loop() {
 void initializeTransmitterDB() {
   // Define your transmitters here - customize based on your deployment
   const struct {
-    unsigned long id;      // RF code transmitted
+    unsigned long id;      // ID transmitted
     const char* name;      // Display name
     int points;            // Points value
   } transmitterList[] = {
@@ -211,52 +268,6 @@ void initializeTransmitterDB() {
 }
 
 /**
- * Process received RF signals
- * Uses signal filtering and averaging for more stable readings
- */
-void handleRFSignal() {
-  unsigned long receivedValue = mySwitch.getReceivedValue();
-  
-  if (receivedValue != 0) {
-    // Debug info - print protocol, bit length and pulse length
-    Serial.print("RF Signal | Value: ");
-    Serial.print(receivedValue);
-    Serial.print(" | Protocol: ");
-    Serial.print(mySwitch.getReceivedProtocol());
-    Serial.print(" | Bits: ");
-    Serial.print(mySwitch.getReceivedBitlength());
-    Serial.print(" | Delay: ");
-    Serial.print(mySwitch.getReceivedDelay());
-    Serial.println("μs");
-    
-    // Calculate signal strength - we simulate RSSI since RCSwitch doesn't provide it
-    // For real RSSI you would need hardware that provides this value
-    
-    // Get reception delay as a rough signal strength indicator
-    // Shorter delays generally mean stronger signals
-    unsigned int receiveDelay = mySwitch.getReceivedDelay();
-    
-    // Convert to simulated RSSI (roughly -30 to -90 dBm range)
-    // Note: This is an approximation - real RSSI would be better
-    int rawRssi = map(constrain(receiveDelay, 100, 1000), 100, 1000, -40, -90);
-    
-    // Add slight randomness to simulate real-world conditions
-    rawRssi += random(-3, 4);
-    
-    // Find matching transmitter
-    int index = findTransmitterIndex(receivedValue);
-    if (index >= 0) {
-      updateTransmitterData(index, rawRssi);
-      checkForNewDiscovery(index);
-    } else {
-      Serial.println("Unknown transmitter ID: " + String(receivedValue));
-    }
-  } else {
-    Serial.println("Invalid RF signal received");
-  }
-}
-
-/**
  * Find the index of a transmitter in our database by its ID
  */
 int findTransmitterIndex(unsigned long id) {
@@ -272,10 +283,14 @@ int findTransmitterIndex(unsigned long id) {
  * Update transmitter data with new signal information
  * Uses exponential smoothing for stable readings
  */
-void updateTransmitterData(int index, int rssi) {
+void updateTransmitterData(int index, int rssi, SignalData* data) {
   // Store last seen time
   transmitters[index].lastSeen = millis();
   transmitters[index].isActive = true;
+  
+  // Ensure name and points are updated from data
+  transmitters[index].name = String(data->name);
+  transmitters[index].points = data->points;
   
   // Set raw RSSI
   transmitters[index].rssi = rssi;
@@ -291,11 +306,9 @@ void updateTransmitterData(int index, int rssi) {
   }
   
   // Convert RSSI to approximate distance using log-distance path loss model
-  // This is a simplified model that works reasonably well in most environments
-  float txPower = -30.0;  // RSSI at 1 meter (calibration parameter)
+  // This is a more accurate model with ESP-NOW since we have real RSSI values
+  float txPower = -60.0;  // RSSI at 1 meter (calibration parameter)
   float pathLossExponent = 2.2; // Path loss exponent (2.0 for free space, higher for obstacles)
-  
-  if (rssi == 0) rssi = -100; // Handle case where RSSI is 0
   
   // Log-distance path loss model: d = 10^((Txpower - RSSI)/(10 * n))
   // Where n is path loss exponent
@@ -366,20 +379,6 @@ void updateTransmitterStatus() {
 }
 
 /**
- * Battery-related functions disabled
- */
-/*
-void readBatteryVoltage() {
-  // Battery reading disabled - set a fixed good value
-  batteryVoltage = 4.0;  // Good battery level (USB powered)
-  
-  Serial.print("Battery monitoring disabled. Using fixed value: ");
-  Serial.print(batteryVoltage);
-  Serial.println("V");
-}
-*/
-
-/**
  * Load game state from EEPROM
  */
 void loadGameState() {
@@ -429,12 +428,12 @@ void setupWebServer() {
   server.on("/api/status", handleStatusAPI);
   server.on("/api/reset", HTTP_POST, handleResetAPI);
   
-  // New download endpoint
+  // Download endpoint
   server.on("/api/download", handleDownloadAPI);
   
   // Handle 404
   server.onNotFound([]() {
-    server.send(404, "text/plain", "Not found. Use IP address to access the RF Signal Hunt game.");
+    server.send(404, "text/plain", "Not found. Use IP address to access the Signal Hunt game.");
   });
 
   server.begin();
@@ -442,7 +441,7 @@ void setupWebServer() {
 }
 
 /**
- * New API endpoint to download results as JSON file
+ * API endpoint to download results as JSON file
  */
 void handleDownloadAPI() {
   StaticJsonDocument<1024> doc;
@@ -479,7 +478,7 @@ void handleDownloadAPI() {
   // Device information for verification
   doc["deviceID"] = String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF), HEX);  // Use ESP32's unique MAC as ID
   doc["timestamp"] = millis();
-  doc["version"] = "2.3";
+  doc["version"] = "3.0";
   
   String response;
   serializeJsonPretty(doc, response);  // Pretty print for readability
@@ -489,6 +488,119 @@ void handleDownloadAPI() {
   server.send(200, "application/json", response);
   
   Serial.println("Results downloaded");
+}
+
+/**
+ * API endpoint to get transmitter information
+ * Returns JSON with active transmitters and status
+ */
+void handleTransmittersAPI() {
+  StaticJsonDocument<1024> doc;
+  
+  JsonArray transmitterArray = doc.createNestedArray("transmitters");
+  int activeCount = 0;
+  
+  // Add active transmitters to JSON
+  for (int i = 0; i < transmitterCount; i++) {
+    if (transmitters[i].isActive) {
+      JsonObject transmitter = transmitterArray.createNestedObject();
+      transmitter["id"] = transmitters[i].id;
+      transmitter["name"] = transmitters[i].name;
+      transmitter["distance"] = transmitters[i].distance;
+      transmitter["rssi"] = transmitters[i].rssi;
+      transmitter["points"] = transmitters[i].points;
+      transmitter["lastSeen"] = transmitters[i].lastSeen;
+      transmitter["isActive"] = transmitters[i].isActive;
+      activeCount++;
+    }
+  }
+  
+  doc["timestamp"] = millis();
+  doc["activeCount"] = activeCount;
+  doc["maxRange"] = gameState.maxDistance;
+  
+  String response;
+  serializeJson(doc, response);
+  
+  server.send(200, "application/json", response);
+}
+
+/**
+ * API endpoint to get score information
+ * Returns JSON with game state
+ */
+void handleScoreAPI() {
+  StaticJsonDocument<512> doc;
+  
+  doc["totalScore"] = gameState.totalScore;
+  doc["foundCount"] = gameState.foundCount;
+  doc["sessionTime"] = millis() - gameState.sessionStart;
+  
+  JsonArray foundArray = doc.createNestedArray("foundTransmitters");
+  for (int i = 0; i < transmitterCount; i++) {
+    if (gameState.foundTransmitters[i]) {
+      foundArray.add(transmitters[i].id);
+    }
+  }
+  
+  String response;
+  serializeJson(doc, response);
+  
+  server.send(200, "application/json", response);
+}
+
+/**
+ * API endpoint for system status
+ * Returns system info
+ */
+void handleStatusAPI() {
+  StaticJsonDocument<256> doc;
+  
+  doc["uptime"] = millis() / 1000;
+  doc["rssi"] = WiFi.RSSI();
+  doc["freeHeap"] = ESP.getFreeHeap();
+  doc["activeSignals"] = 0;
+  
+  // Count active signals
+  for (int i = 0; i < transmitterCount; i++) {
+    if (transmitters[i].isActive) {
+      doc["activeSignals"] = doc["activeSignals"].as<int>() + 1;
+    }
+  }
+  
+  String response;
+  serializeJson(doc, response);
+  
+  server.send(200, "application/json", response);
+}
+
+/**
+ * API endpoint to reset the game
+ * POST only to prevent accidental reset
+ */
+void handleResetAPI() {
+  // Reset game state
+  gameState.totalScore = 0;
+  gameState.foundCount = 0;
+  gameState.sessionStart = millis();
+  
+  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
+    gameState.foundTransmitters[i] = false;
+  }
+  
+  // Save reset state
+  saveGameState();
+  
+  StaticJsonDocument<128> doc;
+  doc["status"] = "success";
+  doc["message"] = "Game reset successfully";
+  
+  String response;
+  serializeJson(doc, response);
+  
+  server.send(200, "application/json", response);
+  
+  Serial.println("Game state reset!");
 }
 
 /**
@@ -596,11 +708,6 @@ void handleRoot() {
             font-size: 13px;
             color: var(--text-secondary);
             margin-top: 4px;
-        }
-        
-        /* Battery indicator removed */
-        .battery-indicator {
-            display: none;
         }
         
         .radar-container {
@@ -1074,7 +1181,7 @@ void handleRoot() {
     <div class="container">
         <div class="header">
             <div class="header-content">
-                <div class="logo">IEEE APS,CUSAT SB</div>
+                <div class="logo">IEEE APS</div>
                 <div class="status-indicator">
                     <div class="status-dot" id="connectionStatus"></div>
                     <span id="connectionText">CONNECTED</span>
@@ -1162,7 +1269,7 @@ void handleRoot() {
         </div>
         
         <div class="footer">
-            IEEE APS CUSAT Student Branch • RF Propagation Workshop 2025
+            IEEE APS CUSAT Student Branch • ESP Signal Propagation Workshop 2025
         </div>
     </div>
 
@@ -1491,111 +1598,4 @@ void handleRoot() {
 )rawliteral";
 
   server.send(200, "text/html", html);
-}
-
-/**
- * API endpoint to get transmitter information
- * Returns JSON with active transmitters and status
- */
-void handleTransmittersAPI() {
-  StaticJsonDocument<1024> doc;
-  
-  JsonArray transmitterArray = doc.createNestedArray("transmitters");
-  int activeCount = 0;
-  
-  // Add active transmitters to JSON
-  for (int i = 0; i < transmitterCount; i++) {
-    if (transmitters[i].isActive) {
-      JsonObject transmitter = transmitterArray.createNestedObject();
-      transmitter["id"] = transmitters[i].id;
-      transmitter["name"] = transmitters[i].name;
-      transmitter["distance"] = transmitters[i].distance;
-      transmitter["rssi"] = transmitters[i].rssi;
-      transmitter["points"] = transmitters[i].points;
-      transmitter["lastSeen"] = transmitters[i].lastSeen;
-      transmitter["isActive"] = transmitters[i].isActive;
-      activeCount++;
-    }
-  }
-  
-  doc["timestamp"] = millis();
-  doc["activeCount"] = activeCount;
-  doc["maxRange"] = gameState.maxDistance;
-  
-  String response;
-  serializeJson(doc, response);
-  
-  server.send(200, "application/json", response);
-}
-
-/**
- * API endpoint to get score information
- * Returns JSON with game state
- */
-void handleScoreAPI() {
-  StaticJsonDocument<512> doc;
-  
-  doc["totalScore"] = gameState.totalScore;
-  doc["foundCount"] = gameState.foundCount;
-  doc["sessionTime"] = millis() - gameState.sessionStart;
-  
-  JsonArray foundArray = doc.createNestedArray("foundTransmitters");
-  for (int i = 0; i < transmitterCount; i++) {
-    if (gameState.foundTransmitters[i]) {
-      foundArray.add(transmitters[i].id);
-    }
-  }
-  
-  String response;
-  serializeJson(doc, response);
-  
-  server.send(200, "application/json", response);
-}
-
-/**
- * API endpoint for system status
- * Returns battery level and other system info
- */
-void handleStatusAPI() {
-  StaticJsonDocument<256> doc;
-  
-  // Fixed good battery level (4.0V = ~100% for LiPo)
-  doc["battery"] = batteryVoltage;
-  doc["uptime"] = millis() / 1000;
-  doc["rssi"] = WiFi.RSSI();
-  doc["freeHeap"] = ESP.getFreeHeap();
-  
-  String response;
-  serializeJson(doc, response);
-  
-  server.send(200, "application/json", response);
-}
-
-/**
- * API endpoint to reset the game
- * POST only to prevent accidental reset
- */
-void handleResetAPI() {
-  // Reset game state
-  gameState.totalScore = 0;
-  gameState.foundCount = 0;
-  gameState.sessionStart = millis();
-  
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    gameState.foundTransmitters[i] = false;
-  }
-  
-  // Save reset state
-  saveGameState();
-  
-  StaticJsonDocument<128> doc;
-  doc["status"] = "success";
-  doc["message"] = "Game reset successfully";
-  
-  String response;
-  serializeJson(doc, response);
-  
-  server.send(200, "application/json", response);
-  
-  Serial.println("Game state reset!");
 }
