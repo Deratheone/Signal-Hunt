@@ -1,94 +1,200 @@
-# Hardware Assembly Guide
+# Workshop Guide
 
-This guide provides step-by-step instructions for assembling both the receiver and transmitter hardware for the RF Signal Hunt project.
+This document outlines how to organize and run the Signal Hunt workshop and competition.
 
-## Receiver Assembly (ESP32)
+## Workshop Overview
 
-### Components
-- ESP32 DevKit board
-- 433MHz RF receiver module
-- Mini USB cable
-- Power bank (5V output)
-- Jumper wires
+The Signal Hunt event is designed as a two-phase educational activity:
+
+1. **Workshop Phase** (2-3 hours): Participants build the receivers and if time remains also an example transmitter
+2. **Hunt Phase** (1-2 hours): Participants use their receivers to find hidden transmitters
+
+## Learning Objectives
+
+By completing this workshop, participants will learn:
+
+- Fundamentals of wireless communication protocols
+- ESP-NOW technology and advantages
+- Signal strength measurement techniques
+- RSSI-based distance estimation
+- ESP32 programming and capabilities
+- Web interface development for IoT devices
+- Wireless signal propagation principles
+
+## Required Materials
+
+### Per Participant/Team:
+- ESP32 DevKit module
+- lion cell 
+- Boost converter like MT3608  (to convert 3.7v from cell to the required 5v for the esp32)
 - Optional: Small enclosure
-- Optional: Battery voltage divider (2x 100kΩ resistors)
+- Computer with Arduino IDE installed (one per team)
 
-### Connections
-1. **Power Connection**
-   - Connect ESP32 to power bank using USB cable
+### For Instructors:
+- Pre-programmed ESP32 transmitters (6 recommended)
+- Spare ESP32 modules
+- USB cables (ensure it has data lines to program the board)
+- Fully charged lion cells
+- Sample completed receiver for demonstration
 
-2. **RF Receiver Connection**
-   - VCC → 3.3V on ESP32
-   - GND → GND on ESP32 
-   - DATA → GPIO2 on ESP32
+## Workshop Schedule
 
-3. **Optional: Battery Monitoring**
-   - Create voltage divider with two 100kΩ resistors
-   - Connect divider between power source and GND
-   - Connect middle point to GPIO34 (ADC pin)
+### Introduction (30 minutes)
+- Welcome and IEEE APS introduction
+- Theory of wireless communication and ESP-NOW protocol
+- Overview of the project and competition rules
 
-## Transmitter Assembly (Arduino Uno)
+### Hardware Setup (30 minutes)
+- Distribute ESP32 modules to participants
+- Connect to power sources
+- Basic ESP32 orientation
 
-### Components
-- Arduino Uno board
-- 433MHz RF transmitter module
-- 9V battery
-- 9V battery clip
-- Jumper wires
-- Optional: Small enclosure
+### Software Setup (60 minutes)
+- ESP32 board setup in Arduino IDE
+- Required libraries installation
+- ESP-NOW protocol explanation
+- Code walkthrough and explanation
+- Uploading code to ESP32
 
-### Connections
-1. **Power Connection**
-   - Connect 9V battery to Arduino power jack
-   
-2. **RF Transmitter Connection**
-   - VCC → 5V on Arduino
-   - GND → GND on Arduino
-   - DATA → Digital Pin 10 on Arduino
+### Testing & Calibration (30 minutes)
+- WiFi access point verification
+- Web interface testing
+- Signal detection validation
+- Range testing with sample transmitter
+- RSSI to distance calibration
 
-## Antenna Optimization
+### Competition Briefing (15 minutes)
+- Explanation of scoring system
+- Transmitter point values
+- Competition rules and time limit
+- Safety considerations
 
-For optimal range, we recommend:
+### Signal Hunt Competition (60-120 minutes)
+- Deploy hidden transmitters around venue
+- Release participants to find transmitters
+- prvide hints if necessary
+- Track scores via web interface
+- request for the json files with all the details at the end from each team
+- Time limit enforcement
 
-### Receiver Antenna
-- Use a 17.3cm straight wire for 433MHz (1/4 wavelength)
-- Keep antenna vertical and unobstructed
-- Use thicker gauge wire for better performance
+### Award Ceremony (15 minutes)
+- Announce winners
+- Distribute prizes
+- Explain solutions and optimal routes
+- Collect feedback for future events
 
-### Transmitter Antenna
-- Use a 17.3cm straight wire for 433MHz
-- Mount vertically and as high as possible
-- Keep away from metal objects
+## Workshop Presentation Topics
 
-## Enclosure Considerations
-- Use non-metallic enclosures to prevent signal blockage
-- Ensure antenna extends outside the enclosure
-- Include ventilation if running for extended periods
-- Make battery accessible for replacement
+1. **ESP-NOW Protocol**
+   - Connectionless communication advantage
+   - Comparison with WiFi and Bluetooth
+   - Security and reliability features
+   - Power efficiency
 
-## Troubleshooting Common Hardware Issues
+2. **Signal Propagation**
+   - Electromagnetic wave behavior
+   - Obstacles and interference
+   - Multipath effects
+   - Environmental factors
 
-| Issue | Possible Cause | Solution |
-|-------|---------------|----------|
-| Limited range | Improper antenna length | Ensure antenna is 17.3cm for 433MHz |
-| No signal detection | Incorrect wiring | Double-check DATA pin connection |
-| Intermittent reception | Power issues | Use stable power source, check connections |
-| False readings | Interference | Move away from other RF sources |
+3. **RSSI Measurements**
+   - Received Signal Strength Indicator
+   - Converting RSSI to distance
+   - Statistical reliability improvements
+   - Smoothing and filtering techniques
 
-## Testing Your Assembly
+4. **ESP32 Capabilities**
+   - Dual-core architecture
+   - WiFi and Bluetooth functionalities
+   - Power management features
+   - Programming considerations
 
-1. **Transmitter Test**:
-   - Power on the Arduino
-   - LED on pin 13 should blink, indicating transmission
+## Competition Rules
 
-2. **Receiver Test**:
-   - Power on the ESP32
-   - Connect to WiFi AP "RF-SIGNAL-HUNT"
-   - Navigate to http://192.168.4.1
-   - Verify signal detection from transmitter
+1. Each team uses their built receiver to locate hidden transmitters
+2. Points awarded based on transmitter discovery (verified by web interface)
+3. Time limit: 60-120 minutes (adjust based on venue size)
+4. Leaderboard updates automatically via web interface
+5. Winning team is one with highest point total at the end
 
-## Additional Resources
+## Instructor Tips
 
-For more details on RF optimization and antenna design, see the IEEE APS resources on antenna theory and practical applications.
+- Deploy a mix of easy and challenging transmitters
+- Place higher-value transmitters in more difficult locations
+- Have a sample receiver to demonstrate expected behavior
+- Provide hints for teams struggling after a set time
+- Consider environmental factors affecting signal propagation
+- Use tape or marking to indicate boundaries of the hunt area
+- Have technical support available during the hunt
 
-Last Updated: 2025-06-26
+## Safety Considerations
+
+- Establish clear boundaries for the hunt area
+- Provide emergency contact information
+- Use buddy system if in larger or more complex venues
+- Ensure all areas are accessible and safe
+- Have first aid kit available
+- Communicate time limit and return procedure clearly
+
+## ESP-NOW Technical Advantages for Discussion
+
+1. **Power Efficiency**
+   - Sleep mode between transmissions
+   - Fast wake-up and transmission times
+   - No connection overhead
+
+2. **Simplicity**
+   - No WiFi router required
+   - Direct device-to-device communication
+   - Simple API implementation
+
+3. **Reliability**
+   - Acknowledgment mechanism
+   - Multiple retry attempts
+   - Consistent performance in crowded RF environments
+
+4. **Range**
+   - Up to 200m line-of-sight
+   - 30-50m indoor typical range
+   - Better penetration than Bluetooth
+
+## Post-Event Activities
+
+- Collect participant feedback
+- Document lessons learned
+- Recover all transmitters
+- Analyze most popular/difficult transmitter locations
+- Share photos and results on IEEE social media
+- Plan improvements for future events
+
+## Advanced Options
+
+### Extended Projects
+- Add digital displays to receivers
+- Implement team-based scoring system
+- Create mobile app companion for hunt
+- Design custom PCBs for more compact receivers
+- Add encryption to ESP-NOW communications
+
+### Variations for Different Skill Levels
+**Beginners:**
+- Pre-assembled receivers with focus on hunt experience
+- More frequent signal transmission intervals
+- Limited hunt area with clearly visible landmarks
+
+**Advanced:**
+- Add triangulation algorithms for precise location
+- Implement custom web interface designs
+- Create mesh network of transmitters
+- Add environmental sensors to transmitters
+
+### Integration with Other IEEE Topics
+- Combine with power management workshop (battery efficiency)
+- Add encryption components for cybersecurity education
+- Include signal processing elements for DSP education
+- Connect to AWS IoT for cloud integration learning
+
+---
+
+Last Updated: 2025-06-01 
+Prepared by: Deratheone
