@@ -1,6 +1,6 @@
 #  Signal Hunt
 
-![Signal Hunt Banner](images/banner.png)
+![Signal Hunt Banner](images/banner.jpeg)
 
 A campus-wide wireless treasure hunt game for educational events, developed by IEEE APS CUSAT Student Branch.
 
