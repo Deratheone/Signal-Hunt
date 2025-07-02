@@ -29,6 +29,9 @@ ESP-NOW Signal Hunt turns wireless signal theory into an interactive game where 
 - **Persistent Storage** - Game progress saved between power cycles
 - **Mobile-Friendly UI** - Responsive design works on any smartphone
 
+## Note: 
+The radar display shows the detected transmitters as a visual aid only. The representation is not to scale and does not provide any directional data. It is intended as a visual indication of detection rather than providing accurate positioning or directional guidance.
+
 ## 📋 Workshop Structure
 
 This project is designed as a two-phase educational event:
