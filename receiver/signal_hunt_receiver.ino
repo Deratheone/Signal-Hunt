@@ -1,5 +1,5 @@
 /**
- * Signal Hunt Receiver
+ * ESP-NOW Signal Hunt Receiver
  * IEEE APS CUSAT Educational Event
  * 
  * This code implements a signal hunt receiver using ESP32 and ESP-NOW protocol.
@@ -11,8 +11,8 @@
  * - Power via USB cable or power bank
  * 
  * Author: IEEE APS CUSAT Student Branch
- * Date: 2025-06-30
- * Version: 3.0 - ESP-NOW implementation
+ * Date: 2025-07-02
+ * Version: 3.1 - ESP-NOW implementation with reset button
  */
 
 #include <esp_now.h>
@@ -26,7 +26,7 @@ const char* ssid = "SIGNAL-HUNT";
 const char* password = "ieee2024";
 
 //============== GAME CONFIGURATION ==============//
-#define DISCOVERY_RANGE 5.0    // Distance in meters to discover a transmitter
+#define DISCOVERY_RANGE 1.0    // Distance in meters to discover a transmitter
 #define SIGNAL_TIMEOUT 10000   // Time in ms before signal is considered lost
 
 // Web Server on port 80
@@ -129,7 +129,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n======= ESP-NOW SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 3.0 - 2025-06-30");
+  Serial.println("Version 3.1 - 2025-07-02");
 
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
@@ -187,51 +187,6 @@ void loop() {
   
   // Small delay to prevent CPU hogging
   delay(10);
-}
-/**
- * ESP-NOW Data Received Callback
- * This function is called whenever we receive a packet via ESP-NOW
- */
-void OnDataReceived(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
-  // Convert MAC to string
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  
-  // Print MAC and RSSI
-  Serial.print("📡 Signal from: ");
-  Serial.print(macStr);
-  
-  // Get RSSI
-  int rssi = WiFi.RSSI();
-  Serial.print(" [RSSI: ");
-  Serial.print(rssi);
-  Serial.print("dBm] ");
-
-  // Process received data
-  if (data_len == sizeof(SignalData)) {
-    SignalData* receivedData = (SignalData*)data;
-    
-    Serial.print("ID: ");
-    Serial.print(receivedData->id);
-    Serial.print(" (");
-    Serial.print(receivedData->name);
-    Serial.println(")");
-    
-    // Find matching transmitter in our database
-    int index = findTransmitterIndex(receivedData->id);
-    
-    if (index >= 0) {
-      // Update transmitter with received data and RSSI
-      updateTransmitterData(index, rssi, receivedData);
-      checkForNewDiscovery(index);
-    } else {
-      Serial.println("Unknown transmitter ID: " + String(receivedData->id));
-    }
-    
-  } else {
-    Serial.println("Received data with unexpected size");
-  }
 }
 
 /**
@@ -427,6 +382,7 @@ void setupWebServer() {
   server.on("/api/score", handleScoreAPI);
   server.on("/api/status", handleStatusAPI);
   server.on("/api/reset", HTTP_POST, handleResetAPI);
+  server.on("/api/reset", HTTP_GET, handleResetAPI); // Also allow GET for easy browser access
   
   // Download endpoint
   server.on("/api/download", handleDownloadAPI);
@@ -478,13 +434,13 @@ void handleDownloadAPI() {
   // Device information for verification
   doc["deviceID"] = String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF), HEX);  // Use ESP32's unique MAC as ID
   doc["timestamp"] = millis();
-  doc["version"] = "3.0";
+  doc["version"] = "3.1";
   
   String response;
   serializeJsonPretty(doc, response);  // Pretty print for readability
   
   // Send with download headers
-  server.sendHeader("Content-Disposition", "attachment; filename=rf_hunt_results.json");
+  server.sendHeader("Content-Disposition", "attachment; filename=signal_hunt_results.json");
   server.send(200, "application/json", response);
   
   Serial.println("Results downloaded");
@@ -576,7 +532,7 @@ void handleStatusAPI() {
 
 /**
  * API endpoint to reset the game
- * POST only to prevent accidental reset
+ * POST or GET to reset game state
  */
 void handleResetAPI() {
   // Reset game state
@@ -954,11 +910,11 @@ void handleRoot() {
             text-align: right;
         }
         
-        .download-container {
+        .button-container {
             margin-top: 16px;
         }
 
-        .download-button {
+        .button {
             background: linear-gradient(135deg, var(--primary), var(--highlight));
             border: none;
             color: white;
@@ -975,18 +931,28 @@ void handleRoot() {
             width: 100%;
         }
 
-        .download-button:hover {
+        .button:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
         }
 
-        .download-button:active {
+        .button:active {
             transform: translateY(0px);
         }
 
-        .download-icon {
+        .button-icon {
             margin-right: 8px;
             font-size: 16px;
+        }
+        
+        .danger-button {
+            background: linear-gradient(135deg, #f43f5e, #ef4444);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            margin-top: 10px;
+        }
+        
+        .danger-button:hover {
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
         }
         
         .transmitter-grid {
@@ -1147,6 +1113,14 @@ void handleRoot() {
         .notification.success .notification-title {
             color: var(--secondary);
         }
+
+        .notification.error {
+            border-color: var(--danger);
+        }
+        
+        .notification.error .notification-title {
+            color: var(--danger);
+        }
         
         .footer {
             padding: 16px;
@@ -1154,6 +1128,76 @@ void handleRoot() {
             font-size: 11px;
             color: var(--text-secondary);
             border-top: 1px solid var(--border);
+            margin-top: 20px;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            width: 90%;
+            max-width: 320px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--danger);
+        }
+        
+        .modal-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        
+        .modal-button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+        
+        .cancel-button {
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        
+        .confirm-button {
+            background: var(--danger);
+            color: white;
         }
         
         @media (max-width: 380px) {
@@ -1248,10 +1292,12 @@ void handleRoot() {
                 </div>
             </div>
             
-            <!-- Download button added -->
-            <div class="download-container">
-                <button class="download-button" onclick="downloadResults()">
-                    <span class="download-icon">⬇️</span> Download Results
+            <div class="button-container">
+                <button class="button" onclick="downloadResults()">
+                    <span class="button-icon">⬇️</span> Download Results
+                </button>
+                <button class="button danger-button" onclick="showResetModal()">
+                    <span class="button-icon">🔄</span> Reset Game
                 </button>
             </div>
         </div>
@@ -1270,6 +1316,20 @@ void handleRoot() {
         
         <div class="footer">
             IEEE APS CUSAT Student Branch • ESP Signal Propagation Workshop 2025
+        </div>
+    </div>
+
+    <!-- Reset confirmation modal -->
+    <div class="modal" id="resetModal">
+        <div class="modal-content">
+            <div class="modal-title">Reset Game?</div>
+            <div class="modal-text">
+                This will clear all progress, found transmitters, and reset your score to zero. This action cannot be undone.
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-button cancel-button" onclick="hideResetModal()">Cancel</button>
+                <button class="modal-button confirm-button" onclick="resetGame()">Reset</button>
+            </div>
         </div>
     </div>
 
@@ -1312,7 +1372,8 @@ void handleRoot() {
             scanningText: document.getElementById('scanningText'),
             notification: document.getElementById('notification'),
             notificationTitle: document.getElementById('notificationTitle'),
-            notificationBody: document.getElementById('notificationBody')
+            notificationBody: document.getElementById('notificationBody'),
+            resetModal: document.getElementById('resetModal')
         };
 
         // Initialize the transmitter grid
@@ -1510,6 +1571,45 @@ void handleRoot() {
             setTimeout(() => {
                 elements.notification.className = 'notification';
             }, 4000);
+        }
+
+        // Show reset confirmation modal
+        function showResetModal() {
+            elements.resetModal.classList.add('active');
+        }
+        
+        // Hide reset confirmation modal
+        function hideResetModal() {
+            elements.resetModal.classList.remove('active');
+        }
+        
+        // Reset the game
+        function resetGame() {
+            fetch('/api/reset')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Reset local state
+                        gameState.score = 0;
+                        gameState.foundTransmitters = new Set();
+                        
+                        // Update UI
+                        updateScore();
+                        updateTransmitterGrid(gameState.activeTransmitters);
+                        
+                        // Show notification
+                        showNotification('Game Reset', 'Your progress has been reset successfully', 'success');
+                        
+                        // Hide modal
+                        hideResetModal();
+                    } else {
+                        showNotification('Reset Failed', 'Could not reset the game', 'error');
+                    }
+                })
+                .catch(err => {
+                    console.error('Error resetting game:', err);
+                    showNotification('Reset Failed', 'Could not reset the game', 'error');
+                });
         }
 
         // Download results as JSON file
