@@ -12,7 +12,7 @@
  * 
  * Author: IEEE APS CUSAT Student Branch
  * Date: 2025-07-02
- * Version: 3.1 - ESP-NOW implementation with reset button
+ * Version: 3.2 - Improved accuracy, fixed reset functionality, better radar
  */
 
 #include <esp_now.h>
@@ -22,12 +22,13 @@
 #include <ArduinoJson.h>
 
 //============== WIFI CONFIGURATION ==============//
-const char* ssid = "SIGNAL-HUNT";
+const char* ssid = "SIGNAL-HUNT";    // Changed to match repository name
 const char* password = "ieee2024";
 
 //============== GAME CONFIGURATION ==============//
-#define DISCOVERY_RANGE 1.0    // Distance in meters to discover a transmitter
-#define SIGNAL_TIMEOUT 10000   // Time in ms before signal is considered lost
+#define DISCOVERY_RANGE 2.0    // Distance in meters to discover a transmitter (reduced from 5m)
+#define SIGNAL_TIMEOUT 5000    // Time in ms before signal is considered lost (reduced from 10s)
+#define RESET_COOLDOWN 5000    // Cooldown after reset before new discoveries allowed
 
 // Web Server on port 80
 WebServer server(80);
@@ -50,6 +51,8 @@ struct TransmitterData {
   unsigned long lastSeen;    // Timestamp when last detected
   bool isActive;             // Currently being detected
   float smoothedRSSI;        // Filtered RSSI for stable readings
+  int signalCount;           // Number of recent signal detections
+  float angle;               // Angle for radar display (0-359 degrees)
 };
 
 // Transmitter Database
@@ -59,15 +62,18 @@ int transmitterCount = 0;
 
 // Game State
 struct GameState {
-  int totalScore;                       // Accumulated points
+  int totalScore;                        // Accumulated points
   bool foundTransmitters[MAX_TRANSMITTERS]; // Discovered transmitters
-  unsigned long sessionStart;           // Game start time
-  int foundCount;                       // Number of found transmitters
-  float maxDistance;                    // Maximum detection range (auto-calibrated)
+  unsigned long sessionStart;            // Game start time
+  int foundCount;                        // Number of found transmitters
+  float maxDistance;                     // Maximum detection range (auto-calibrated)
+  unsigned long lastResetTime;           // Time of last reset
+  bool resetMode;                        // Is system in reset cooldown mode?
 } gameState;
 
 // Signal processing variables
-float rssiAlpha = 0.3; // Exponential smoothing factor (0-1)
+float rssiAlpha = 0.3;      // Exponential smoothing factor (0-1)
+float distanceScaleFactor = 1.2; // Scaling factor for distance (increase to show longer distances)
 
 // EEPROM addresses
 #define EEPROM_SIZE 512
@@ -76,21 +82,27 @@ float rssiAlpha = 0.3; // Exponential smoothing factor (0-1)
 #define SETTINGS_ADDR 100
 
 /**
- * ESP-NOW Data Received Callback - Updated for new ESP-NOW API
+ * ESP-NOW Data Received Callback
+ * Called when ESP-NOW data is received from a transmitter
  */
 void OnDataReceived(const esp_now_recv_info_t *info, const uint8_t *data, int data_len) {
+  // Ignore signals during reset cooldown
+  if (gameState.resetMode) {
+    return;
+  }
+  
   // Get the sender's MAC address
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            info->src_addr[0], info->src_addr[1], info->src_addr[2], 
            info->src_addr[3], info->src_addr[4], info->src_addr[5]);
   
-  // Print MAC and RSSI
-  Serial.print("📡 Signal from: ");
-  Serial.print(macStr);
-  
   // Get RSSI from WiFi
   int rssi = WiFi.RSSI();
+  
+  // Print MAC and RSSI for debugging
+  Serial.print("📡 Signal from: ");
+  Serial.print(macStr);
   Serial.print(" [RSSI: ");
   Serial.print(rssi);
   Serial.print("dBm] ");
@@ -115,7 +127,6 @@ void OnDataReceived(const esp_now_recv_info_t *info, const uint8_t *data, int da
     } else {
       Serial.println("Unknown transmitter ID: " + String(receivedData->id));
     }
-    
   } else {
     Serial.println("Received data with unexpected size");
   }
@@ -129,12 +140,13 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n\n======= ESP-NOW SIGNAL HUNT RECEIVER STARTING =======");
   Serial.println("IEEE Antennas and Propagation Society - CUSAT");
-  Serial.println("Version 3.1 - 2025-07-02");
+  Serial.println("Version 3.2 - 2025-07-02");
 
   // Initialize EEPROM for persistent storage
   EEPROM.begin(EEPROM_SIZE);
   Serial.println("1. EEPROM initialized");
   
+  // Load game state from EEPROM
   loadGameState();
   Serial.println("2. Game state loaded from EEPROM");
 
@@ -167,8 +179,11 @@ void setup() {
   setupWebServer();
   Serial.println("6. Web server initialized");
   
+  // Initialize game state
   gameState.sessionStart = millis();
-  gameState.maxDistance = 50.0; // Initial max range estimate (will auto-calibrate)
+  gameState.maxDistance = 30.0;  // Initial max range estimate (will auto-calibrate)
+  gameState.lastResetTime = 0;
+  gameState.resetMode = false;
   
   Serial.println("\n======= SYSTEM READY =======");
   Serial.println("Connect to WiFi network: " + String(ssid));
@@ -180,10 +195,17 @@ void setup() {
  * Handles main program flow
  */
 void loop() {
+  // Handle web requests
   server.handleClient();
   
   // Update transmitter status (mark as inactive if not seen recently)
   updateTransmitterStatus();
+  
+  // Update reset mode status
+  if (gameState.resetMode && (millis() - gameState.lastResetTime > RESET_COOLDOWN)) {
+    gameState.resetMode = false;
+    Serial.println("Reset cooldown period ended, normal operation resumed");
+  }
   
   // Small delay to prevent CPU hogging
   delay(10);
@@ -219,6 +241,8 @@ void initializeTransmitterDB() {
     transmitters[i].lastSeen = 0;
     transmitters[i].isActive = false;
     transmitters[i].smoothedRSSI = -100;
+    transmitters[i].signalCount = 0;
+    transmitters[i].angle = i * (360.0 / transmitterCount); // Evenly distribute initial angles
   }
 }
 
@@ -243,6 +267,9 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   transmitters[index].lastSeen = millis();
   transmitters[index].isActive = true;
   
+  // Increase signal count (used for reliability)
+  transmitters[index].signalCount++;
+  
   // Ensure name and points are updated from data
   transmitters[index].name = String(data->name);
   transmitters[index].points = data->points;
@@ -262,20 +289,46 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   
   // Convert RSSI to approximate distance using log-distance path loss model
   // This is a more accurate model with ESP-NOW since we have real RSSI values
-  float txPower = -60.0;  // RSSI at 1 meter (calibration parameter)
-  float pathLossExponent = 2.2; // Path loss exponent (2.0 for free space, higher for obstacles)
+  float txPower = -55.0;  // RSSI at 1 meter (calibration parameter)
+  float pathLossExponent = 2.8;  // Path loss exponent (higher = faster distance growth)
   
   // Log-distance path loss model: d = 10^((Txpower - RSSI)/(10 * n))
   // Where n is path loss exponent
   float smoothedRssi = transmitters[index].smoothedRSSI;
-  transmitters[index].distance = pow(10, (txPower - smoothedRssi) / (10 * pathLossExponent));
+  float rawDistance = pow(10, (txPower - smoothedRssi) / (10 * pathLossExponent));
+  
+  // Apply scaling factor to make the game more challenging
+  // This makes the distance appear farther than it actually is
+  transmitters[index].distance = rawDistance * distanceScaleFactor;
   
   // Add slight randomness to make it feel more natural
   // (Real RF signals fluctuate due to multipath, reflections, etc.)
-  transmitters[index].distance += random(-20, 21) / 100.0;
+  transmitters[index].distance += random(-10, 11) / 100.0;
   
   // Limit distance to reasonable range
   transmitters[index].distance = constrain(transmitters[index].distance, 0.5f, 50.0f);
+  
+  // Update angle with some smooth movement (drift)
+  // This creates a more natural movement on the radar
+  // Use a combination of ID-based position plus subtle movement
+  // Only move angle slightly to avoid jumping around
+  float baseAngle = (index * 60) % 360; // Base angle determined by transmitter index
+  float drift = sin(millis() / 10000.0) * 10; // Slow drift of +/- 10 degrees
+  
+  // Gradually move current angle toward target angle
+  float targetAngle = baseAngle + drift;
+  float angleDiff = targetAngle - transmitters[index].angle;
+  
+  // Normalize angle difference to -180 to +180 degrees
+  if (angleDiff > 180) angleDiff -= 360;
+  if (angleDiff < -180) angleDiff += 360;
+  
+  // Move 5% toward target angle (smooth movement)
+  transmitters[index].angle += angleDiff * 0.05;
+  
+  // Keep angle in 0-359 range
+  if (transmitters[index].angle >= 360) transmitters[index].angle -= 360;
+  if (transmitters[index].angle < 0) transmitters[index].angle += 360;
   
   // Auto-calibrate the maximum detection range
   if (transmitters[index].distance > gameState.maxDistance * 0.8 && 
@@ -292,26 +345,42 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   Serial.print(transmitters[index].rssi);
   Serial.print("dBm, Smoothed: ");
   Serial.print(transmitters[index].smoothedRSSI);
-  Serial.println("dBm)");
+  Serial.print("dBm, Angle: ");
+  Serial.print(transmitters[index].angle);
+  Serial.println("°)");
 }
 
 /**
  * Check if a transmitter is close enough to be discovered
  */
 void checkForNewDiscovery(int index) {
+  // Skip if in reset cooldown mode
+  if (gameState.resetMode || millis() - gameState.lastResetTime < RESET_COOLDOWN) {
+    return;
+  }
+  
+  // Only consider transmitters that have been consistently detected
+  // This prevents spurious discoveries from signal noise
+  if (transmitters[index].signalCount < 3) {
+    return;
+  }
+  
   // Award points if within discovery range and not already found
   if (transmitters[index].distance <= DISCOVERY_RANGE && !gameState.foundTransmitters[index]) {
-    gameState.foundTransmitters[index] = true;
-    gameState.totalScore += transmitters[index].points;
-    gameState.foundCount++;
-    
-    Serial.println("===============================");
-    Serial.println("🎉 DISCOVERY! Found " + transmitters[index].name + 
-                   " - Awarded " + String(transmitters[index].points) + " points!");
-    Serial.println("Total score: " + String(gameState.totalScore));
-    Serial.println("===============================");
-    
-    saveGameState();
+    // Perform additional validation check - must have a strong signal
+    if (transmitters[index].smoothedRSSI > -80) {
+      gameState.foundTransmitters[index] = true;
+      gameState.totalScore += transmitters[index].points;
+      gameState.foundCount++;
+      
+      Serial.println("===============================");
+      Serial.println("🎉 DISCOVERY! Found " + transmitters[index].name + 
+                     " - Awarded " + String(transmitters[index].points) + " points!");
+      Serial.println("Total score: " + String(gameState.totalScore));
+      Serial.println("===============================");
+      
+      saveGameState();
+    }
   }
 }
 
@@ -327,7 +396,7 @@ void updateTransmitterStatus() {
     if (transmitters[i].isActive && currentTime - transmitters[i].lastSeen > SIGNAL_TIMEOUT) {
       transmitters[i].isActive = false;
       transmitters[i].distance = 999.0;
-      transmitters[i].rssi = -100;
+      transmitters[i].signalCount = 0;
       Serial.println("Lost signal from " + transmitters[i].name);
     }
   }
@@ -365,8 +434,12 @@ void saveGameState() {
   for (int i = 0; i < MAX_TRANSMITTERS; i++) {
     EEPROM.put(FOUND_ADDR + i, gameState.foundTransmitters[i]);
   }
-  EEPROM.commit();
-  Serial.println("Game state saved to EEPROM");
+  
+  if (EEPROM.commit()) {
+    Serial.println("Game state saved to EEPROM successfully");
+  } else {
+    Serial.println("ERROR! EEPROM commit failed");
+  }
 }
 
 /**
@@ -434,7 +507,7 @@ void handleDownloadAPI() {
   // Device information for verification
   doc["deviceID"] = String((uint32_t)(ESP.getEfuseMac() & 0xFFFFFFFF), HEX);  // Use ESP32's unique MAC as ID
   doc["timestamp"] = millis();
-  doc["version"] = "3.1";
+  doc["version"] = "3.2";
   
   String response;
   serializeJsonPretty(doc, response);  // Pretty print for readability
@@ -456,24 +529,29 @@ void handleTransmittersAPI() {
   JsonArray transmitterArray = doc.createNestedArray("transmitters");
   int activeCount = 0;
   
-  // Add active transmitters to JSON
-  for (int i = 0; i < transmitterCount; i++) {
-    if (transmitters[i].isActive) {
-      JsonObject transmitter = transmitterArray.createNestedObject();
-      transmitter["id"] = transmitters[i].id;
-      transmitter["name"] = transmitters[i].name;
-      transmitter["distance"] = transmitters[i].distance;
-      transmitter["rssi"] = transmitters[i].rssi;
-      transmitter["points"] = transmitters[i].points;
-      transmitter["lastSeen"] = transmitters[i].lastSeen;
-      transmitter["isActive"] = transmitters[i].isActive;
-      activeCount++;
+  // Don't return any transmitters during reset cooldown
+  if (!gameState.resetMode) {
+    // Add active transmitters to JSON
+    for (int i = 0; i < transmitterCount; i++) {
+      if (transmitters[i].isActive) {
+        JsonObject transmitter = transmitterArray.createNestedObject();
+        transmitter["id"] = transmitters[i].id;
+        transmitter["name"] = transmitters[i].name;
+        transmitter["distance"] = transmitters[i].distance;
+        transmitter["rssi"] = transmitters[i].rssi;
+        transmitter["points"] = transmitters[i].points;
+        transmitter["lastSeen"] = transmitters[i].lastSeen;
+        transmitter["isActive"] = transmitters[i].isActive;
+        transmitter["angle"] = transmitters[i].angle; // Send angle for radar positioning
+        activeCount++;
+      }
     }
   }
   
   doc["timestamp"] = millis();
   doc["activeCount"] = activeCount;
   doc["maxRange"] = gameState.maxDistance;
+  doc["resetMode"] = gameState.resetMode;
   
   String response;
   serializeJson(doc, response);
@@ -516,6 +594,7 @@ void handleStatusAPI() {
   doc["rssi"] = WiFi.RSSI();
   doc["freeHeap"] = ESP.getFreeHeap();
   doc["activeSignals"] = 0;
+  doc["resetMode"] = gameState.resetMode;
   
   // Count active signals
   for (int i = 0; i < transmitterCount; i++) {
@@ -539,12 +618,24 @@ void handleResetAPI() {
   gameState.totalScore = 0;
   gameState.foundCount = 0;
   gameState.sessionStart = millis();
+  gameState.lastResetTime = millis();
+  gameState.resetMode = true;
   
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
+  // Clear all transmitter data completely
+  for (int i = 0; i < transmitterCount; i++) {
+    // Clear found status
     gameState.foundTransmitters[i] = false;
+    
+    // Reset all transmitter data completely
+    transmitters[i].isActive = false;
+    transmitters[i].distance = 999.0;
+    transmitters[i].rssi = -100;
+    transmitters[i].smoothedRSSI = -100;
+    transmitters[i].lastSeen = 0;
+    transmitters[i].signalCount = 0;
   }
   
-  // Save reset state
+  // Save reset state and force immediate commit
   saveGameState();
   
   StaticJsonDocument<128> doc;
@@ -556,7 +647,8 @@ void handleResetAPI() {
   
   server.send(200, "application/json", response);
   
-  Serial.println("Game state reset!");
+  Serial.println("Game state reset - all data cleared");
+  Serial.println("Reset cooldown period active for " + String(RESET_COOLDOWN/1000) + " seconds");
 }
 
 /**
@@ -1252,9 +1344,9 @@ void handleRoot() {
             <div id="blipContainer"></div>
             
             <div class="distance-labels">
-                <span class="distance-label">5m</span>
-                <span class="distance-label">10m</span>
-                <span class="distance-label">15m</span>
+                <span class="distance-label" id="distLabel1">5m</span>
+                <span class="distance-label" id="distLabel2">10m</span>
+                <span class="distance-label" id="distLabel3">15m</span>
             </div>
         </div>
         
@@ -1340,7 +1432,9 @@ void handleRoot() {
             score: 0,
             foundTransmitters: new Set(),
             activeTransmitters: [],
-            transmitterCount: 6
+            transmitterCount: 6,
+            maxDistance: 30,
+            resetMode: false
         };
 
         // Transmitter database (reference data)
@@ -1373,7 +1467,10 @@ void handleRoot() {
             notification: document.getElementById('notification'),
             notificationTitle: document.getElementById('notificationTitle'),
             notificationBody: document.getElementById('notificationBody'),
-            resetModal: document.getElementById('resetModal')
+            resetModal: document.getElementById('resetModal'),
+            distLabel1: document.getElementById('distLabel1'),
+            distLabel2: document.getElementById('distLabel2'),
+            distLabel3: document.getElementById('distLabel3')
         };
 
         // Initialize the transmitter grid
@@ -1410,14 +1507,22 @@ void handleRoot() {
             if (!connected) {
                 elements.scanningText.textContent = 'CONNECTION LOST';
                 showNotification('Connection Lost', 'Check your WiFi connection', 'error');
+            } else if (gameState.resetMode) {
+                elements.scanningText.textContent = 'RESET COOLDOWN';
             } else {
                 elements.scanningText.textContent = 'SCANNING';
             }
         }
         
-        // Update the radar blips
+        // Update the radar blips - improved to position based on angle and distance
         function updateRadarBlips(transmitters) {
             elements.blipContainer.innerHTML = '';
+            
+            // Update radar distance labels based on max distance
+            const maxDist = gameState.maxDistance || 30;
+            elements.distLabel1.textContent = Math.round(maxDist/6) + 'm';
+            elements.distLabel2.textContent = Math.round(maxDist/3) + 'm';
+            elements.distLabel3.textContent = Math.round(maxDist/2) + 'm';
             
             transmitters.forEach(tx => {
                 if (!tx.isActive) return;
@@ -1425,26 +1530,38 @@ void handleRoot() {
                 const blip = document.createElement('div');
                 blip.className = 'blip';
                 
-                // Calculate position on radar
-                // Radar radius is 140px, center is at (140,140)
-                const maxDistance = 50; // Maximum distance in meters
-                const normalizedDistance = Math.min(tx.distance / maxDistance, 1);
-                const blipDistance = normalizedDistance * 130; // Scale to radar size
+                // Calculate position based on distance and angle
+                // Convert real distance to radar display distance (0-130px from center)
+                const radarRadius = 130; // pixels from center to edge
+                const centerX = 140;  // center X coordinate
+                const centerY = 140;  // center Y coordinate
                 
-                // Generate a consistent angle for each transmitter ID
-                const angle = (parseInt(tx.id) * 73) % 360; // Pseudo-random but consistent angle
+                // Scale distance - closer to center = closer in real life
+                // Limit to 95% of radius for visibility
+                const distanceRatio = Math.min(0.95, tx.distance / maxDist);
+                const blipDistance = distanceRatio * radarRadius;
+                
+                // Use the transmitter's angle (0-359 degrees) for positioning
+                // This creates consistent positioning that moves smoothly
+                const angle = tx.angle || 0; 
                 const radians = angle * Math.PI / 180;
                 
-                const x = 140 + Math.cos(radians) * blipDistance;
-                const y = 140 + Math.sin(radians) * blipDistance;
+                // Calculate X,Y position using polar coordinates
+                const x = centerX + Math.cos(radians) * blipDistance;
+                const y = centerY + Math.sin(radians) * blipDistance;
                 
+                // Apply the position
                 blip.style.left = `${x}px`;
                 blip.style.top = `${y}px`;
                 
-                // Set blip color based on transmitter
-                const hue = (parseInt(tx.id) * 60) % 360;
+                // Set blip color based on transmitter ID (visually distinguishable)
+                const txId = parseInt(tx.id);
+                const hue = ((txId - 1000) * 60) % 360;
                 blip.style.backgroundColor = `hsl(${hue}, 80%, 60%)`;
                 blip.style.boxShadow = `0 0 10px hsl(${hue}, 80%, 60%)`;
+                
+                // Add tooltip showing transmitter name and distance
+                blip.title = `${tx.name}: ${tx.distance.toFixed(1)}m`;
                 
                 elements.blipContainer.appendChild(blip);
             });
@@ -1470,14 +1587,17 @@ void handleRoot() {
             elements.targetIcon.textContent = transmitterDB[closest.id]?.icon || 'TX';
             elements.targetName.textContent = closest.name;
             elements.targetId.textContent = `#${closest.id}`;
-            elements.targetDistance.textContent = `${closest.distance.toFixed(2)}m`;
+            elements.targetDistance.textContent = `${closest.distance.toFixed(1)}m`;
             
-            // Update signal strength bars
-            // Convert distance to signal strength (0-5)
-            const strength = Math.max(0, Math.min(5, Math.floor(6 - (closest.distance / 10))));
+            // Update signal strength bars (recalibrated to be more accurate)
+            // Show fewer bars for longer distances
+            const minDist = 1;   // 5 bars at 1m or less
+            const maxDist = 15;  // 0 bars at 15m or more
+            const normalizedStrength = Math.max(0, 1 - (closest.distance - minDist) / (maxDist - minDist));
+            const barCount = Math.round(normalizedStrength * 5);
             
             elements.signalBars.forEach((bar, i) => {
-                bar.className = `signal-bar ${i < strength ? 'active' : ''}`;
+                bar.className = `signal-bar ${i < barCount ? 'active' : ''}`;
             });
         }
 
@@ -1528,9 +1648,12 @@ void handleRoot() {
 
         // Check for newly discovered transmitters
         function checkDiscoveries(transmitters) {
+            // Skip discovery checks during reset mode
+            if (gameState.resetMode) return;
+            
             transmitters.forEach(tx => {
                 if (tx.isActive && 
-                    tx.distance <= 5.0 && 
+                    tx.distance <= 2.0 && // Discovery range now 2.0m
                     !gameState.foundTransmitters.has(tx.id)) {
                     
                     // New discovery!
@@ -1552,10 +1675,15 @@ void handleRoot() {
                     );
                     
                     // Update scanning text
+                                        // Update scanning text
                     elements.scanningText.textContent = `FOUND ${name}!`;
                     setTimeout(() => {
                         if (gameState.connected) {
-                            elements.scanningText.textContent = 'SCANNING';
+                            if (gameState.resetMode) {
+                                elements.scanningText.textContent = 'RESET COOLDOWN';
+                            } else {
+                                elements.scanningText.textContent = 'SCANNING';
+                            }
                         }
                     }, 3000);
                 }
@@ -1585,30 +1713,47 @@ void handleRoot() {
         
         // Reset the game
         function resetGame() {
+            // First clear local UI immediately
+            gameState.resetMode = true;
+            gameState.activeTransmitters = [];
+            gameState.score = 0;
+            gameState.foundTransmitters = new Set();
+            
+            // Update UI immediately
+            elements.blipContainer.innerHTML = '';
+            elements.currentTarget.style.display = 'none';
+            elements.scanningText.textContent = 'RESETTING...';
+            updateScore();
+            updateTransmitterGrid([]);
+            
+            // Call server to reset game state
             fetch('/api/reset')
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        // Reset local state
-                        gameState.score = 0;
-                        gameState.foundTransmitters = new Set();
+                        // Show success notification
+                        showNotification(
+                            'Game Reset', 
+                            'Your progress has been reset. Please wait 5 seconds before new discoveries.', 
+                            'success'
+                        );
                         
-                        // Update UI
-                        updateScore();
-                        updateTransmitterGrid(gameState.activeTransmitters);
-                        
-                        // Show notification
-                        showNotification('Game Reset', 'Your progress has been reset successfully', 'success');
+                        // Update scanning text to show cooldown
+                        elements.scanningText.textContent = 'RESET COOLDOWN';
                         
                         // Hide modal
                         hideResetModal();
                     } else {
+                        // Show error notification
                         showNotification('Reset Failed', 'Could not reset the game', 'error');
+                        gameState.resetMode = false;
                     }
                 })
                 .catch(err => {
                     console.error('Error resetting game:', err);
                     showNotification('Reset Failed', 'Could not reset the game', 'error');
+                    gameState.resetMode = false;
+                    elements.scanningText.textContent = 'ERROR';
                 });
         }
 
@@ -1634,9 +1779,20 @@ void handleRoot() {
                 .then(data => {
                     updateConnectionStatus(true);
                     gameState.activeTransmitters = data.transmitters || [];
+                    gameState.resetMode = data.resetMode || false;
+                    
+                    if (data.maxRange) {
+                        gameState.maxDistance = data.maxRange;
+                    }
+                    
                     updateRadarBlips(gameState.activeTransmitters);
                     updateTransmitterGrid(gameState.activeTransmitters);
                     checkDiscoveries(gameState.activeTransmitters);
+                    
+                    // Update scanning text based on reset mode
+                    if (gameState.resetMode && elements.scanningText.textContent !== 'CONNECTION LOST') {
+                        elements.scanningText.textContent = 'RESET COOLDOWN';
+                    }
                 })
                 .catch(err => {
                     console.error('Failed to fetch transmitter data', err);
@@ -1668,6 +1824,11 @@ void handleRoot() {
         function fetchSystemStatus() {
             fetch('/api/status')
                 .then(res => res.json())
+                .then(data => {
+                    if (data.resetMode !== undefined) {
+                        gameState.resetMode = data.resetMode;
+                    }
+                })
                 .catch(err => {
                     console.error('Failed to fetch status data', err);
                 });
