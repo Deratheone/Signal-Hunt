@@ -72,12 +72,12 @@ The web interface features:
 ## 🔧 Installation
 
 1. Clone this repository
-2. Open `transmitter/espnow_signal_transmitter.ino` in Arduino IDE
+2. Open `transmitter/signal_transmitter.ino` in Arduino IDE
 3. Set unique `TRANSMITTER_ID` for each transmitter
 4. Upload to ESP32 devices
-5. Open `receiver/espnow_signal_hunt_receiver.ino` in Arduino IDE
+5. Open `receiver/signal_hunt_receiver.ino` in Arduino IDE
 6. Upload to ESP32 devices
-7. Connect to receiver's WiFi AP (SSID: RF-SIGNAL-HUNT)
+7. Connect to receiver's WiFi AP (SSID: SIGNAL-HUNT)
 8. Navigate to http://192.168.4.1 in a web browser
 
 ## 📄 License
@@ -90,4 +90,4 @@ Developed by IEEE Antennas and Propagation Society (APS) CUSAT Student Branch.
 
 ---
 
-Last Updated: June 30, 2025
+Last Updated: July 02, 2025
