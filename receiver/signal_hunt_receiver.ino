@@ -26,7 +26,10 @@ const char* ssid = "SIGNAL-HUNT";    // Changed to match repository name
 const char* password = "ieee2024";
 
 //============== GAME CONFIGURATION ==============//
-#define DISCOVERY_RANGE 2.0    // Distance in meters to discover a transmitter (reduced from 5m)
+#define DISCOVERY_RANGE 0.5    // Distance in meters to discover a transmitter (reduced from 5m)
+#define MIN_SIGNAL_COUNT 5
+#define DISCOVERY_RSSI_THRESHOLD -70
+#define SIGNAL_STABILITY_PERIOD 5000
 #define SIGNAL_TIMEOUT 5000    // Time in ms before signal is considered lost (reduced from 10s)
 #define RESET_COOLDOWN 5000    // Cooldown after reset before new discoveries allowed
 
@@ -257,7 +260,6 @@ int findTransmitterIndex(unsigned long id) {
   }
   return -1; // Not found
 }
-
 /**
  * Update transmitter data with new signal information
  * Uses exponential smoothing for stable readings
@@ -267,8 +269,8 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   transmitters[index].lastSeen = millis();
   transmitters[index].isActive = true;
   
-  // Increase signal count (used for reliability)
-  transmitters[index].signalCount++;
+  // Increase signal count (used for reliability) - cap at 20 for stability
+  transmitters[index].signalCount = min(20, transmitters[index].signalCount + 1);
   
   // Ensure name and points are updated from data
   transmitters[index].name = String(data->name);
@@ -278,7 +280,9 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   transmitters[index].rssi = rssi;
   
   // Apply exponential smoothing to RSSI for stability
-  // smoothed = alpha * current + (1-alpha) * previous
+  // Reduce alpha to 0.2 for more stability (was 0.3)
+  const float rssiAlpha = 0.2;
+  
   if (transmitters[index].smoothedRSSI == -100) {
     // First reading
     transmitters[index].smoothedRSSI = rssi;
@@ -288,34 +292,28 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   }
   
   // Convert RSSI to approximate distance using log-distance path loss model
-  // This is a more accurate model with ESP-NOW since we have real RSSI values
-  float txPower = -55.0;  // RSSI at 1 meter (calibration parameter)
-  float pathLossExponent = 2.8;  // Path loss exponent (higher = faster distance growth)
+  // Modified parameters for more realistic distance calculations
+  float txPower = -65.0;  // RSSI at 1 meter (was -55.0, increasing makes distances larger)
+  float pathLossExponent = 3.5;  // Path loss exponent (was 2.8, increasing makes distances grow faster)
   
   // Log-distance path loss model: d = 10^((Txpower - RSSI)/(10 * n))
   // Where n is path loss exponent
   float smoothedRssi = transmitters[index].smoothedRSSI;
   float rawDistance = pow(10, (txPower - smoothedRssi) / (10 * pathLossExponent));
   
-  // Apply scaling factor to make the game more challenging
-  // This makes the distance appear farther than it actually is
-  transmitters[index].distance = rawDistance * distanceScaleFactor;
+  // Apply scaling factor - increase to 1.8 (was 1.2) to make distances appear larger
+  transmitters[index].distance = rawDistance * 1.8;
   
-  // Add slight randomness to make it feel more natural
-  // (Real RF signals fluctuate due to multipath, reflections, etc.)
-  transmitters[index].distance += random(-10, 11) / 100.0;
+  // Remove randomness for more stable readings
+  // transmitters[index].distance += random(-10, 11) / 100.0;
   
   // Limit distance to reasonable range
   transmitters[index].distance = constrain(transmitters[index].distance, 0.5f, 50.0f);
   
   // Update angle with some smooth movement (drift)
-  // This creates a more natural movement on the radar
-  // Use a combination of ID-based position plus subtle movement
-  // Only move angle slightly to avoid jumping around
-  float baseAngle = (index * 60) % 360; // Base angle determined by transmitter index
-  float drift = sin(millis() / 10000.0) * 10; // Slow drift of +/- 10 degrees
-  
-  // Gradually move current angle toward target angle
+  // Keep same angle calculation logic...
+  float baseAngle = (index * 60) % 360; 
+  float drift = sin(millis() / 10000.0) * 10; 
   float targetAngle = baseAngle + drift;
   float angleDiff = targetAngle - transmitters[index].angle;
   
@@ -349,9 +347,9 @@ void updateTransmitterData(int index, int rssi, SignalData* data) {
   Serial.print(transmitters[index].angle);
   Serial.println("°)");
 }
-
 /**
  * Check if a transmitter is close enough to be discovered
+ * Added time-based stability requirements
  */
 void checkForNewDiscovery(int index) {
   // Skip if in reset cooldown mode
@@ -359,16 +357,40 @@ void checkForNewDiscovery(int index) {
     return;
   }
   
+  static unsigned long discoveryTimers[MAX_TRANSMITTERS] = {0};
+  static bool discoveryInProgress[MAX_TRANSMITTERS] = {false};
+  
   // Only consider transmitters that have been consistently detected
-  // This prevents spurious discoveries from signal noise
-  if (transmitters[index].signalCount < 3) {
+  // Increased from 3 to MIN_SIGNAL_COUNT (10)
+  if (transmitters[index].signalCount < MIN_SIGNAL_COUNT) {
+    // Not enough consistent readings, reset discovery timer
+    discoveryInProgress[index] = false;
+    discoveryTimers[index] = 0;
     return;
   }
   
-  // Award points if within discovery range and not already found
+  // Additional RSSI validation - require stronger signal (-70 instead of -80)
+  if (transmitters[index].smoothedRSSI < DISCOVERY_RSSI_THRESHOLD) {
+    // Signal too weak, reset discovery timer
+    discoveryInProgress[index] = false;
+    discoveryTimers[index] = 0;
+    return;
+  }
+  
+  // Check if within discovery range and not already found
   if (transmitters[index].distance <= DISCOVERY_RANGE && !gameState.foundTransmitters[index]) {
-    // Perform additional validation check - must have a strong signal
-    if (transmitters[index].smoothedRSSI > -80) {
+    
+    // If discovery just starting, record the time
+    if (!discoveryInProgress[index]) {
+      discoveryInProgress[index] = true;
+      discoveryTimers[index] = millis();
+      Serial.println("Discovery process started for " + transmitters[index].name);
+      return;
+    }
+    
+    // Check if discovery conditions have been met for at least SIGNAL_STABILITY_PERIOD (5 seconds)
+    if (millis() - discoveryTimers[index] >= SIGNAL_STABILITY_PERIOD) {
+      // Requirements met! Award points
       gameState.foundTransmitters[index] = true;
       gameState.totalScore += transmitters[index].points;
       gameState.foundCount++;
@@ -380,10 +402,17 @@ void checkForNewDiscovery(int index) {
       Serial.println("===============================");
       
       saveGameState();
+      
+      // Reset discovery process
+      discoveryInProgress[index] = false;
     }
+    
+  } else {
+    // No longer in discovery range or conditions not met
+    discoveryInProgress[index] = false;
+    discoveryTimers[index] = 0;
   }
 }
-
 /**
  * Update status of all transmitters
  * Marks transmitters as inactive if not seen recently
@@ -608,7 +637,32 @@ void handleStatusAPI() {
   
   server.send(200, "application/json", response);
 }
-
+/**
+ * API endpoint to get discovery progress information 
+ */
+void handleDiscoveryProgressAPI() {
+  StaticJsonDocument<512> doc;
+  JsonArray progressArray = doc.createNestedArray("discoveryProgress");
+  
+  for (int i = 0; i < transmitterCount; i++) {
+    if (transmitters[i].isActive && !gameState.foundTransmitters[i] && 
+        transmitters[i].distance <= DISCOVERY_RANGE && 
+        transmitters[i].smoothedRSSI >= DISCOVERY_RSSI_THRESHOLD &&
+        transmitters[i].signalCount >= MIN_SIGNAL_COUNT) {
+      
+      JsonObject progress = progressArray.createNestedObject();
+      progress["id"] = transmitters[i].id;
+      progress["name"] = transmitters[i].name;
+      progress["distance"] = transmitters[i].distance;
+      progress["rssi"] = transmitters[i].smoothedRSSI;
+      progress["signalCount"] = transmitters[i].signalCount;
+    }
+  }
+  
+  String response;
+  serializeJson(doc, response);
+  server.send(200, "application/json", response);
+}
 /**
  * API endpoint to reset the game
  * POST or GET to reset game state
