@@ -47,8 +47,7 @@ This project is designed as a two-phase educational event:
 
 ## 📱 Web Interface
 
-![Signal Hunt Interface](images/interface.jpeg)
-
+<img src="images/interface.jpeg" alt="Signal Hunt Interface" width="550"/>
 The web interface features:
 - Interactive radar display
 - Signal strength indicators
