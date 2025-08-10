@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Signal Hunt - IEEE APS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary: #0ea5e9;
+            --secondary: #10b981;
+            --background: #0f172a;
+            --card-bg: #1e293b;
+            --highlight: #3b82f6;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --text: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border: rgba(59, 130, 246, 0.2);
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: var(--text);
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(24px);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            padding: 20px;
+            color: white;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(30, 58, 138, 0.4);
+        }
+        
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            font-weight: 700;
+            font-size: 18px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--secondary);
+            box-shadow: 0 0 10px var(--secondary);
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.offline {
+            background: var(--danger);
+            box-shadow: 0 0 10px var(--danger);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        
+        .title {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 24px;
+            font-weight: 800;
+        }
+        
+        .subtitle {
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .radar-container {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            margin: 24px auto;
+            background: radial-gradient(circle at center, 
+                rgba(14, 165, 233, 0.15) 0%, 
+                rgba(14, 165, 233, 0.05) 40%, 
+                transparent 70%);
+            border-radius: 50%;
+            border: 2px solid rgba(14, 165, 233, 0.3);
+            box-shadow: 0 0 30px rgba(14, 165, 233, 0.15);
+        }
+        
+        .radar-center {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: var(--primary);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 15px var(--primary);
+        }
+        
+        .radar-circles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .radar-circle {
+            position: absolute;
+            border: 1px dashed rgba(14, 165, 233, 0.3);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .radar-circle:nth-child(1) { width: 70px; height: 70px; }
+        .radar-circle:nth-child(2) { width: 140px; height: 140px; }
+        .radar-circle:nth-child(3) { width: 210px; height: 210px; }
+        .radar-circle:nth-child(4) { width: 280px; height: 280px; }
+        
+        .radar-sweep {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50%;
+            height: 2px;
+            background: linear-gradient(90deg, rgba(14, 165, 233, 0) 0%, rgba(14, 165, 233, 0.8) 80%);
+            transform-origin: left center;
+            animation: sweep 4s linear infinite;
+            z-index: 10;
+        }
+        
+        @keyframes sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .radar-axis {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 1px;
+            height: 100%;
+            background: rgba(14, 165, 233, 0.2);
+            transform: translateX(-50%);
+        }
+        
+        .radar-axis:nth-child(2) {
+            transform: translateX(-50%) rotate(45deg);
+        }
+        
+        .radar-axis:nth-child(3) {
+            transform: translateX(-50%) rotate(90deg);
+        }
+        
+        .radar-axis:nth-child(4) {
+            transform: translateX(-50%) rotate(135deg);
+        }
+        
+        .blip {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            margin: -6px 0 0 -6px;
+            background: var(--highlight);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--highlight);
+            animation: blink 2s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.5); opacity: 0.7; }
+        }
+        
+        .distance-labels {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .distance-label {
+            position: absolute;
+            font-size: 10px;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+        
+        .distance-label:nth-child(1) { top: 50%; left: calc(50% + 40px); transform: translate(-50%, -50%); }
+        .distance-label:nth-child(2) { top: 50%; left: calc(50% + 75px); transform: translate(-50%, -50%); }
+        .distance-label:nth-child(3) { top: 50%; left: calc(50% + 110px); transform: translate(-50%, -50%); }
+        
+        .current-target {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 16px;
+            margin: 0 20px 20px;
+            border: 1px solid var(--border);
+            display: flex;
+        }
+        
+        .target-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--highlight));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            flex-shrink: 0;
+            margin-right: 16px;
+        }
+        
+        .target-info {
+            flex: 1;
+        }
+        
+        .target-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+        
+        .target-id {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        
+        .target-distance {
+            font-family: monospace;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--secondary);
+            margin-top: 2px;
+        }
+        
+        .signal-bars {
+            display: flex;
+            gap: 3px;
+            margin-top: 8px;
+        }
+        
+        .signal-bar {
+            width: 4px;
+            background: rgba(100, 116, 139, 0.4);
+            border-radius: 2px;
+        }
+        
+        .signal-bar:nth-child(1) { height: 6px; }
+        .signal-bar:nth-child(2) { height: 10px; }
+        .signal-bar:nth-child(3) { height: 14px; }
+        .signal-bar:nth-child(4) { height: 18px; }
+        .signal-bar:nth-child(5) { height: 22px; }
+        
+        .signal-bar.active {
+            background: linear-gradient(0deg, var(--secondary), var(--primary));
+        }
+        
+        .score-section {
+            background: rgba(15, 23, 42, 0.7);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            margin: 0 20px 20px;
+            border: 1px solid var(--border);
+        }
+        
+        .score-value {
+            font-size: 36px;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+        }
+        
+        .score-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .progress-container {
+            margin-top: 12px;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 4px;
+            width: 0%;
+            transition: width 1s ease;
+        }
+        
+        .progress-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            text-align: right;
+        }
+        
+        .button-container {
+            margin-top: 16px;
+        }
+
+        .button {
+            background: linear-gradient(135deg, var(--primary), var(--highlight));
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            width: 100%;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .button:active {
+            transform: translateY(0px);
+        }
+
+        .button-icon {
+            margin-right: 8px;
+            font-size: 16px;
+        }
+        
+        .danger-button {
+            background: linear-gradient(135deg, #f43f5e, #ef4444);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+            margin-top: 10px;
+        }
+        
+        .danger-button:hover {
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+        }
+        
+        .transmitter-grid {
+            padding: 20px;
+        }
+        
+        .grid-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        
+        .grid-item {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        
+        .grid-item.found {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+        
+        .grid-item.active {
+            background: rgba(14, 165, 233, 0.15);
+            border-color: rgba(14, 165, 233, 0.3);
+        }
+        
+        .transmitter-name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .transmitter-details {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+        
+        .points-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: var(--card-bg);
+            color: var(--primary);
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid var(--border);
+        }
+        
+        .found .points-badge {
+            background: var(--secondary);
+            color: white;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+        
+        .status-badge {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-badge.lost {
+            background: var(--text-secondary);
+        }
+        
+        .status-badge.active {
+            background: var(--primary);
+            box-shadow: 0 0 5px var(--primary);
+            animation: pulse 2s infinite;
+        }
+        
+        .status-badge.found {
+            background: var(--secondary);
+            box-shadow: 0 0 5px var(--secondary);
+        }
+        
+        .status-text {
+            font-size: 11px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .scanning-status {
+            text-align: center;
+            color: var(--secondary);
+            font-family: monospace;
+            font-size: 14px;
+            font-weight: 600;
+            margin: -10px 0 16px;
+            letter-spacing: 1px;
+        }
+        
+        .scanning-dots::after {
+            content: '...';
+            animation: dots 1.5s infinite;
+            display: inline-block;
+            width: 24px;
+            text-align: left;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40%, 60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+            max-width: 280px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            text-align: center;
+        }
+        
+        .notification.active {
+            opacity: 1;
+        }
+        
+        .notification-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .notification-body {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        
+        .notification.success {
+            border-color: var(--secondary);
+        }
+        
+        .notification.success .notification-title {
+            color: var(--secondary);
+        }
+
+        .notification.error {
+            border-color: var(--danger);
+        }
+        
+        .notification.error .notification-title {
+            color: var(--danger);
+        }
+        
+        .footer {
+            padding: 16px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border);
+            margin-top: 20px;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            width: 90%;
+            max-width: 320px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--danger);
+        }
+        
+        .modal-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        
+        .modal-button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+        
+        .cancel-button {
+            background: var(--card-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        
+        .confirm-button {
+            background: var(--danger);
+            color: white;
+        }
+        
+        @media (max-width: 380px) {
+            .radar-container {
+                width: 240px;
+                height: 240px;
+            }
+            
+            .radar-circle:nth-child(1) { width: 60px; height: 60px; }
+            .radar-circle:nth-child(2) { width: 120px; height: 120px; }
+            .radar-circle:nth-child(3) { width: 180px; height: 180px; }
+            .radar-circle:nth-child(4) { width: 240px; height: 240px; }
+            
+            .title {
+                font-size: 22px;
+            }
+            
+            .score-value {
+                font-size: 32px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <div class="logo">IEEE APS</div>
+                <div class="status-indicator">
+                    <div class="status-dot" id="connectionStatus"></div>
+                    <span id="connectionText">CONNECTED</span>
+                </div>
+            </div>
+            
+            <div class="title">SIGNAL HUNT</div>
+            <div class="subtitle">LOCATE HIDDEN TRANSMITTERS</div>
+        </div>
+        
+        <div class="radar-container">
+            <div class="radar-circles">
+                <div class="radar-circle"></div>
+                <div class="radar-circle"></div>
+                <div class="radar-circle"></div>
+                <div class="radar-circle"></div>
+            </div>
+            <div class="radar-axis"></div>
+            <div class="radar-axis"></div>
+            <div class="radar-axis"></div>
+            <div class="radar-axis"></div>
+            <div class="radar-center"></div>
+            <div class="radar-sweep"></div>
+            <div id="blipContainer"></div>
+            
+            <div class="distance-labels">
+                <span class="distance-label" id="distLabel1">5m</span>
+                <span class="distance-label" id="distLabel2">10m</span>
+                <span class="distance-label" id="distLabel3">15m</span>
+            </div>
+        </div>
+        
+        <div class="scanning-status">
+            <span id="scanningText">SCANNING</span>
+            <span class="scanning-dots"></span>
+        </div>
+        
+        <div class="current-target" id="currentTarget" style="display:none;">
+            <div class="target-icon" id="targetIcon">TX</div>
+            <div class="target-info">
+                <div class="target-name" id="targetName">--</div>
+                <div class="target-id" id="targetId">#----</div>
+                <div class="target-distance" id="targetDistance">--</div>
+                <div class="signal-bars" id="signalBars">
+                    <div class="signal-bar"></div>
+                    <div class="signal-bar"></div>
+                    <div class="signal-bar"></div>
+                    <div class="signal-bar"></div>
+                    <div class="signal-bar"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="score-section">
+            <div class="score-value" id="scoreValue">0</div>
+            <div class="score-label">POINTS</div>
+            
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text">
+                    <span id="foundCount">0</span>/<span id="totalCount">6</span> transmitters
+                </div>
+            </div>
+            
+            <div class="button-container">
+                <button class="button" onclick="downloadResults()">
+                    <span class="button-icon">⬇️</span> Download Results
+                </button>
+                <button class="button danger-button" onclick="showResetModal()">
+                    <span class="button-icon">🔄</span> Reset Game
+                </button>
+            </div>
+        </div>
+        
+        <div class="transmitter-grid">
+            <div class="grid-title">TRANSMITTERS</div>
+            <div class="grid" id="transmitterGrid">
+                <!-- Transmitter grid items will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="notification" id="notification">
+            <div class="notification-title" id="notificationTitle"></div>
+            <div class="notification-body" id="notificationBody"></div>
+        </div>
+        
+        <div class="footer">
+            IEEE APS CUSAT Student Branch • ESP Signal Propagation Workshop 2025
+        </div>
+    </div>
+
+    <!-- Reset confirmation modal -->
+    <div class="modal" id="resetModal">
+        <div class="modal-content">
+            <div class="modal-title">Reset Game?</div>
+            <div class="modal-text">
+                This will clear all progress, found transmitters, and reset your score to zero. This action cannot be undone.
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-button cancel-button" onclick="hideResetModal()">Cancel</button>
+                <button class="modal-button confirm-button" onclick="resetGame()">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game state management
+        const gameState = {
+            connected: true,
+            score: 0,
+            foundTransmitters: new Set(),
+            activeTransmitters: [],
+            transmitterCount: 6,
+            maxDistance: 30,
+            resetMode: false
+        };
+
+        // Transmitter database (reference data)
+        const transmitterDB = {
+            1001: { name: "Alpha", points: 10, icon: "A" },
+            1002: { name: "Beta", points: 15, icon: "B" },
+            1003: { name: "Gamma", points: 20, icon: "Γ" },
+            1004: { name: "Delta", points: 25, icon: "Δ" },
+            1005: { name: "Epsilon", points: 30, icon: "E" },
+            1006: { name: "Omega", points: 50, icon: "Ω" }
+        };
+
+        // DOM Elements
+        const elements = {
+            connectionStatus: document.getElementById('connectionStatus'),
+            connectionText: document.getElementById('connectionText'),
+            blipContainer: document.getElementById('blipContainer'),
+            currentTarget: document.getElementById('currentTarget'),
+            targetIcon: document.getElementById('targetIcon'),
+            targetName: document.getElementById('targetName'),
+            targetId: document.getElementById('targetId'),
+            targetDistance: document.getElementById('targetDistance'),
+            signalBars: document.getElementById('signalBars').querySelectorAll('.signal-bar'),
+            scoreValue: document.getElementById('scoreValue'),
+            progressFill: document.getElementById('progressFill'),
+            foundCount: document.getElementById('foundCount'),
+            totalCount: document.getElementById('totalCount'),
+            transmitterGrid: document.getElementById('transmitterGrid'),
+            scanningText: document.getElementById('scanningText'),
+            notification: document.getElementById('notification'),
+            notificationTitle: document.getElementById('notificationTitle'),
+            notificationBody: document.getElementById('notificationBody'),
+            resetModal: document.getElementById('resetModal'),
+            distLabel1: document.getElementById('distLabel1'),
+            distLabel2: document.getElementById('distLabel2'),
+            distLabel3: document.getElementById('distLabel3')
+        };
+
+        // Initialize the transmitter grid
+        function initTransmitterGrid() {
+            elements.transmitterGrid.innerHTML = '';
+            
+            Object.entries(transmitterDB).forEach(([id, tx]) => {
+                const item = document.createElement('div');
+                item.className = 'grid-item';
+                item.dataset.id = id;
+                
+                item.innerHTML = `
+                    <div class="points-badge">${tx.points} pts</div>
+                    <div class="transmitter-name">${tx.name}</div>
+                    <div class="transmitter-details">#${id}</div>
+                    <div class="status-text">
+                        <span class="status-badge lost"></span>
+                        <span class="status-text-value">Not detected</span>
+                    </div>
+                `;
+                
+                elements.transmitterGrid.appendChild(item);
+            });
+            
+            elements.totalCount.textContent = Object.keys(transmitterDB).length;
+        }
+
+        // Update connection status UI
+        function updateConnectionStatus(connected) {
+            gameState.connected = connected;
+            elements.connectionStatus.className = `status-dot ${connected ? '' : 'offline'}`;
+            elements.connectionText.textContent = connected ? 'CONNECTED' : 'DISCONNECTED';
+            
+            if (!connected) {
+                elements.scanningText.textContent = 'CONNECTION LOST';
+                showNotification('Connection Lost', 'Check your WiFi connection', 'error');
+            } else if (gameState.resetMode) {
+                elements.scanningText.textContent = 'RESET COOLDOWN';
+            } else {
+                elements.scanningText.textContent = 'SCANNING';
+            }
+        }
+        
+        // Update the radar blips - improved to position based on angle and distance
+        function updateRadarBlips(transmitters) {
+            elements.blipContainer.innerHTML = '';
+            
+            // Update radar distance labels based on max distance
+            const maxDist = gameState.maxDistance || 30;
+            elements.distLabel1.textContent = Math.round(maxDist/6) + 'm';
+            elements.distLabel2.textContent = Math.round(maxDist/3) + 'm';
+            elements.distLabel3.textContent = Math.round(maxDist/2) + 'm';
+            
+            transmitters.forEach(tx => {
+                if (!tx.isActive) return;
+                
+                const blip = document.createElement('div');
+                blip.className = 'blip';
+                
+                // Calculate position based on distance and angle
+                // Convert real distance to radar display distance (0-130px from center)
+                const radarRadius = 130; // pixels from center to edge
+                const centerX = 140;  // center X coordinate
+                const centerY = 140;  // center Y coordinate
+                
+                // Scale distance - closer to center = closer in real life
+                // Limit to 95% of radius for visibility
+                const distanceRatio = Math.min(0.95, tx.distance / maxDist);
+                const blipDistance = distanceRatio * radarRadius;
+                
+                // Use the transmitter's angle (0-359 degrees) for positioning
+                // This creates consistent positioning that moves smoothly
+                const angle = tx.angle || 0; 
+                const radians = angle * Math.PI / 180;
+                
+                // Calculate X,Y position using polar coordinates
+                const x = centerX + Math.cos(radians) * blipDistance;
+                const y = centerY + Math.sin(radians) * blipDistance;
+                
+                // Apply the position
+                blip.style.left = `${x}px`;
+                blip.style.top = `${y}px`;
+                
+                // Set blip color based on transmitter ID (visually distinguishable)
+                const txId = parseInt(tx.id);
+                const hue = ((txId - 1000) * 60) % 360;
+                blip.style.backgroundColor = `hsl(${hue}, 80%, 60%)`;
+                blip.style.boxShadow = `0 0 10px hsl(${hue}, 80%, 60%)`;
+                
+                // Add tooltip showing transmitter name and distance
+                blip.title = `${tx.name}: ${tx.distance.toFixed(1)}m`;
+                
+                elements.blipContainer.appendChild(blip);
+            });
+            
+            updateCurrentTarget(transmitters);
+        }
+
+        // Update the current target display
+        function updateCurrentTarget(transmitters) {
+            // Find closest active transmitter
+            const activeTransmitters = transmitters.filter(tx => tx.isActive);
+            
+            if (activeTransmitters.length === 0) {
+                elements.currentTarget.style.display = 'none';
+                return;
+            }
+            
+            // Sort by distance and pick closest
+            const closest = activeTransmitters.sort((a, b) => a.distance - b.distance)[0];
+            
+            // Update UI
+            elements.currentTarget.style.display = 'flex';
+            elements.targetIcon.textContent = transmitterDB[closest.id]?.icon || 'TX';
+            elements.targetName.textContent = closest.name;
+            elements.targetId.textContent = `#${closest.id}`;
+            elements.targetDistance.textContent = `${closest.distance.toFixed(1)}m`;
+            
+            // Update signal strength bars (recalibrated to be more accurate)
+            // Show fewer bars for longer distances
+            const minDist = 1;   // 5 bars at 1m or less
+            const maxDist = 15;  // 0 bars at 15m or more
+            const normalizedStrength = Math.max(0, 1 - (closest.distance - minDist) / (maxDist - minDist));
+            const barCount = Math.round(normalizedStrength * 5);
+            
+            elements.signalBars.forEach((bar, i) => {
+                bar.className = `signal-bar ${i < barCount ? 'active' : ''}`;
+            });
+        }
+
+        // Update transmitter grid status
+        function updateTransmitterGrid(transmitters) {
+            // Map of active transmitters for quick lookup
+            const activeMap = {};
+            transmitters.forEach(tx => {
+                if (tx.isActive) {
+                    activeMap[tx.id] = tx;
+                }
+            });
+            
+            // Update each grid item
+            document.querySelectorAll('#transmitterGrid .grid-item').forEach(item => {
+                const id = parseInt(item.dataset.id);
+                const statusBadge = item.querySelector('.status-badge');
+                const statusText = item.querySelector('.status-text-value');
+                
+                if (gameState.foundTransmitters.has(id)) {
+                    // Transmitter is found
+                    item.className = 'grid-item found';
+                    statusBadge.className = 'status-badge found';
+                    statusText.textContent = 'Found';
+                } else if (activeMap[id]) {
+                    // Transmitter is active
+                    const tx = activeMap[id];
+                    item.className = 'grid-item active';
+                    statusBadge.className = 'status-badge active';
+                    statusText.textContent = `${tx.distance.toFixed(1)}m`;
+                } else {
+                    // Transmitter is not detected
+                    item.className = 'grid-item';
+                    statusBadge.className = 'status-badge lost';
+                    statusText.textContent = 'Not detected';
+                }
+            });
+        }
+
+        // Update score and progress
+        function updateScore() {
+            elements.scoreValue.textContent = gameState.score;
+            elements.foundCount.textContent = gameState.foundTransmitters.size;
+            
+            const progress = (gameState.foundTransmitters.size / gameState.transmitterCount) * 100;
+            elements.progressFill.style.width = `${progress}%`;
+        }
+
+        // Check for newly discovered transmitters
+        function checkDiscoveries(transmitters) {
+            // Skip discovery checks during reset mode
+            if (gameState.resetMode) return;
+            
+            transmitters.forEach(tx => {
+                if (tx.isActive && 
+                    tx.distance <= 2.0 && // Discovery range now 2.0m
+                    !gameState.foundTransmitters.has(tx.id)) {
+                    
+                    // New discovery!
+                    gameState.foundTransmitters.add(tx.id);
+                    gameState.score += transmitterDB[tx.id]?.points || 0;
+                    
+                    // Update UI
+                    updateScore();
+                    updateTransmitterGrid(transmitters);
+                    
+                    // Show notification
+                    const name = transmitterDB[tx.id]?.name || 'Transmitter';
+                    const points = transmitterDB[tx.id]?.points || 0;
+                    
+                    showNotification(
+                        `${name} Found!`, 
+                        `+${points} points added to your score`, 
+                        'success'
+                    );
+                    
+                    // Update scanning text
+                                        // Update scanning text
+                    elements.scanningText.textContent = `FOUND ${name}!`;
+                    setTimeout(() => {
+                        if (gameState.connected) {
+                            if (gameState.resetMode) {
+                                elements.scanningText.textContent = 'RESET COOLDOWN';
+                            } else {
+                                elements.scanningText.textContent = 'SCANNING';
+                            }
+                        }
+                    }, 3000);
+                }
+            });
+        }
+
+        // Show notification
+        function showNotification(title, body, type = 'info') {
+            elements.notification.className = `notification ${type} active`;
+            elements.notificationTitle.textContent = title;
+            elements.notificationBody.textContent = body;
+            
+            setTimeout(() => {
+                elements.notification.className = 'notification';
+            }, 4000);
+        }
+
+        // Show reset confirmation modal
+        function showResetModal() {
+            elements.resetModal.classList.add('active');
+        }
+        
+        // Hide reset confirmation modal
+        function hideResetModal() {
+            elements.resetModal.classList.remove('active');
+        }
+        
+        // Reset the game
+        function resetGame() {
+            // First clear local UI immediately
+            gameState.resetMode = true;
+            gameState.activeTransmitters = [];
+            gameState.score = 0;
+            gameState.foundTransmitters = new Set();
+            
+            // Update UI immediately
+            elements.blipContainer.innerHTML = '';
+            elements.currentTarget.style.display = 'none';
+            elements.scanningText.textContent = 'RESETTING...';
+            updateScore();
+            updateTransmitterGrid([]);
+            
+            // Call server to reset game state
+            fetch('/api/reset')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Show success notification
+                        showNotification(
+                            'Game Reset', 
+                            'Your progress has been reset. Please wait 5 seconds before new discoveries.', 
+                            'success'
+                        );
+                        
+                        // Update scanning text to show cooldown
+                        elements.scanningText.textContent = 'RESET COOLDOWN';
+                        
+                        // Hide modal
+                        hideResetModal();
+                    } else {
+                        // Show error notification
+                        showNotification('Reset Failed', 'Could not reset the game', 'error');
+                        gameState.resetMode = false;
+                    }
+                })
+                .catch(err => {
+                    console.error('Error resetting game:', err);
+                    showNotification('Reset Failed', 'Could not reset the game', 'error');
+                    gameState.resetMode = false;
+                    elements.scanningText.textContent = 'ERROR';
+                });
+        }
+
+        // Download results as JSON file
+        function downloadResults() {
+            showNotification('Preparing Download', 'Creating results file...', 'info');
+            
+            // Trigger download from the server
+            window.location.href = '/api/download';
+            
+            // Show success notification after a delay
+            setTimeout(() => {
+                showNotification('Download Complete', 'Results saved to your device', 'success');
+            }, 1000);
+        }
+
+        // API CALLS
+
+        // Fetch transmitter data
+        function fetchTransmitterData() {
+            fetch('/api/transmitters')
+                .then(res => res.json())
+                .then(data => {
+                    updateConnectionStatus(true);
+                    gameState.activeTransmitters = data.transmitters || [];
+                    gameState.resetMode = data.resetMode || false;
+                    
+                    if (data.maxRange) {
+                        gameState.maxDistance = data.maxRange;
+                    }
+                    
+                    updateRadarBlips(gameState.activeTransmitters);
+                    updateTransmitterGrid(gameState.activeTransmitters);
+                    checkDiscoveries(gameState.activeTransmitters);
+                    
+                    // Update scanning text based on reset mode
+                    if (gameState.resetMode && elements.scanningText.textContent !== 'CONNECTION LOST') {
+                        elements.scanningText.textContent = 'RESET COOLDOWN';
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to fetch transmitter data', err);
+                    updateConnectionStatus(false);
+                });
+        }
+
+        // Fetch score data
+        function fetchScoreData() {
+            fetch('/api/score')
+                .then(res => res.json())
+                .then(data => {
+                    gameState.score = data.totalScore;
+                    
+                    // Update found transmitters
+                    if (Array.isArray(data.foundTransmitters)) {
+                        gameState.foundTransmitters = new Set(data.foundTransmitters);
+                    }
+                    
+                    updateScore();
+                    updateTransmitterGrid(gameState.activeTransmitters);
+                })
+                .catch(err => {
+                    console.error('Failed to fetch score data', err);
+                });
+        }
+
+        // Fetch system status
+        function fetchSystemStatus() {
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.resetMode !== undefined) {
+                        gameState.resetMode = data.resetMode;
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to fetch status data', err);
+                });
+        }
+
+        // Initialize the application
+        function initialize() {
+            initTransmitterGrid();
+            updateConnectionStatus(true);
+            updateScore();
+            
+            // Fetch initial data
+            fetchTransmitterData();
+            fetchScoreData();
+            fetchSystemStatus();
+            
+            // Set up periodic data fetching
+            setInterval(fetchTransmitterData, 1000);  // Update transmitter data every 1 second
+            setInterval(fetchScoreData, 5000);        // Update score data every 5 seconds
+            setInterval(fetchSystemStatus, 10000);    // Update system status every 10 seconds
+        }
+
+        // Start the app when document is ready
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
