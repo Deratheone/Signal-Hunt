@@ -59,7 +59,8 @@ unsigned long lastSendTime = 0;
  * @param mac_addr  MAC address of the recipient
  * @param status    Status of the transmission (success or failure)
  */
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+// FIXED callback for ESP-IDF v5.x / latest ESP32 Arduino core
+void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
   if (status == ESP_NOW_SEND_SUCCESS) {
     // Transmission successful - single short LED blink
     Serial.println("✓ Transmission sent successfully");
@@ -77,6 +78,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     }
   }
 }
+
 
 /**
  * Setup Function - Runs once at startup
